@@ -4,4 +4,3 @@ bin/
 .vscode/
 *.test
 *.out
-venv-manager
