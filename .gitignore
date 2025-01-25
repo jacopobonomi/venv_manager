@@ -1,0 +1,7 @@
+bin/
+*.exe
+.idea/
+.vscode/
+*.test
+*.out
+venv-manager
