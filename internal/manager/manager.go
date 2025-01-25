@@ -273,3 +273,31 @@ func (m *Manager) Remove(name string) error {
 	}
 	return m.fs.RemoveAll(venvPath)
 }
+
+func (m *Manager) ListPackages(name string) ([]string, error) {
+	venvPath := filepath.Join(m.baseDir, name)
+	pipPath := filepath.Join(venvPath, "bin", "pip")
+	if runtime.GOOS == "windows" {
+		pipPath = filepath.Join(venvPath, "Scripts", "pip.exe")
+	}
+
+	cmd := exec.Command(pipPath, "list", "--format=json")
+	output, err := cmd.Output()
+	if err != nil {
+		return nil, err
+	}
+
+	var packages []struct {
+		Name    string `json:"name"`
+		Version string `json:"version"`
+	}
+	if err := json.Unmarshal(output, &packages); err != nil {
+		return nil, err
+	}
+
+	result := make([]string, len(packages))
+	for i, pkg := range packages {
+		result[i] = fmt.Sprintf("%s==%s", pkg.Name, pkg.Version)
+	}
+	return result, nil
+}

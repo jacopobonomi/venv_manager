@@ -8,6 +8,15 @@ import (
 	"github.com/jacopobonomi/venv-manager/internal/manager"
 )
 
+const (
+	colorRed    = "\033[31m"
+	colorGreen  = "\033[32m"
+	colorYellow = "\033[33m"
+	colorReset  = "\033[0m"
+	colorCyan   = "\033[36m"
+	colorLight  = "\033[98m"
+)
+
 func main() {
 	if len(os.Args) < 2 {
 		printUsage()
@@ -26,22 +35,41 @@ func main() {
 	switch args[0] {
 	case "activate":
 		if len(args) < 2 {
-			fmt.Println("Error: Missing venv name")
+			fmt.Printf("%s❌ Error: Missing venv name%s\n", colorRed, colorReset)
 			printUsage()
 			os.Exit(1)
 		}
 
 		venvPath := filepath.Join(mgr.GetBaseDir(), args[1])
 		if _, err := os.Stat(venvPath); os.IsNotExist(err) {
-			fmt.Fprintf(os.Stderr, "Venv '%s' does not exist\n", args[1])
+			fmt.Printf("%s❌ Venv '%s' does not exist%s\n", colorRed, args[1], colorReset)
 			os.Exit(1)
 		}
 
-		fmt.Printf("source %s/bin/activate", venvPath)
+		fmt.Printf("Run: source %s/bin/activate", venvPath)
+
+	case "deactivate":
+		fmt.Println("Run: deactivate")
+
+	case "packages":
+		if len(args) < 2 {
+			fmt.Printf("%s❌ Error: Missing venv name%s\n", colorRed, colorReset)
+			printUsage()
+			os.Exit(1)
+		}
+		packages, err := mgr.ListPackages(args[1])
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "%v\n", err)
+			os.Exit(1)
+		}
+		fmt.Printf("%s📦 Packages in '%s':%s\n", colorYellow, args[1], colorReset)
+		for _, pkg := range packages {
+			fmt.Println(pkg)
+		}
 
 	case "install":
 		if len(args) < 3 {
-			fmt.Println("Error: Missing venv name or requirements file")
+			fmt.Printf("%s❌ Error: Missing venv name or requirements file%s\n", colorRed, colorReset)
 			printUsage()
 			os.Exit(1)
 		}
@@ -49,10 +77,11 @@ func main() {
 			fmt.Fprintf(os.Stderr, "%v\n", err)
 			os.Exit(1)
 		}
-		fmt.Printf("Installed requirements from '%s' to '%s'\n", args[2], args[1])
+		fmt.Printf("%s📦 Installed requirements from '%s' to '%s'%s\n", colorGreen, args[2], args[1], colorReset)
+
 	case "clone":
 		if len(args) < 3 {
-			fmt.Println("Error: Missing source or target venv name")
+			fmt.Printf("%s❌ Error: Missing source or target venv name%s\n", colorRed, colorReset)
 			printUsage()
 			os.Exit(1)
 		}
@@ -60,11 +89,11 @@ func main() {
 			fmt.Fprintf(os.Stderr, "%v\n", err)
 			os.Exit(1)
 		}
-		fmt.Printf("Cloned '%s' to '%s'\n", args[1], args[2])
+		fmt.Printf("%s📋 Cloned '%s' to '%s'%s\n", colorGreen, args[1], args[2], colorReset)
 
 	case "upgrade":
 		if len(args) < 2 && !global {
-			fmt.Println("Error: Missing venv name")
+			fmt.Printf("%s❌ Error: Missing venv name%s\n", colorRed, colorReset)
 			printUsage()
 			os.Exit(1)
 		}
@@ -76,11 +105,11 @@ func main() {
 			fmt.Fprintf(os.Stderr, "%v\n", err)
 			os.Exit(1)
 		}
-		fmt.Println("Packages upgraded successfully")
+		fmt.Printf("%s⬆️  Packages upgraded successfully%s\n", colorGreen, colorReset)
 
 	case "clean":
 		if len(args) < 2 && !global {
-			fmt.Println("Error: Missing venv name")
+			fmt.Printf("%s❌ Error: Missing venv name%s\n", colorRed, colorReset)
 			printUsage()
 			os.Exit(1)
 		}
@@ -92,10 +121,11 @@ func main() {
 			fmt.Fprintf(os.Stderr, "%v\n", err)
 			os.Exit(1)
 		}
-		fmt.Println("Environment cleaned successfully")
+		fmt.Printf("%s🧹 Environment cleaned successfully%s\n", colorGreen, colorReset)
+
 	case "create":
 		if len(os.Args) < 3 {
-			fmt.Println("Error: Missing venv name")
+			fmt.Printf("%s❌ Error: Missing venv name%s\n", colorRed, colorReset)
 			printUsage()
 			os.Exit(1)
 		}
@@ -107,7 +137,7 @@ func main() {
 			fmt.Fprintf(os.Stderr, "%v\n", err)
 			os.Exit(1)
 		}
-		fmt.Printf("Created virtual environment '%s'\n", os.Args[2])
+		fmt.Printf("%s✨ Created virtual environment '%s'%s\n", colorGreen, args[1], colorReset)
 
 	case "list":
 		venvs, err := mgr.List()
@@ -116,17 +146,17 @@ func main() {
 			os.Exit(1)
 		}
 		if len(venvs) == 0 {
-			fmt.Println("No virtual environments found")
+			fmt.Printf("%s🌐 No virtual environments found%s\n", colorYellow, colorReset)
 			return
 		}
-		fmt.Println("Available virtual environments:")
+		fmt.Printf("%s📂 Available virtual environments:%s\n", colorYellow, colorReset)
 		for _, venv := range venvs {
 			fmt.Printf("- %s\n", venv)
 		}
 
 	case "remove":
 		if len(os.Args) < 3 {
-			fmt.Println("Error: Missing venv name")
+			fmt.Printf("%s❌ Error: Missing venv name%s\n", colorRed, colorReset)
 			printUsage()
 			os.Exit(1)
 		}
@@ -134,7 +164,7 @@ func main() {
 			fmt.Fprintf(os.Stderr, "%v\n", err)
 			os.Exit(1)
 		}
-		fmt.Printf("Removed virtual environment '%s'\n", os.Args[2])
+		fmt.Printf("%s🗑️  Removed virtual environment '%s'%s\n", colorGreen, args[1], colorReset)
 
 	default:
 		fmt.Printf("Unknown command: %s\n", os.Args[1])
@@ -142,19 +172,32 @@ func main() {
 		os.Exit(1)
 	}
 }
-
 func printUsage() {
-	fmt.Println("Usage:")
-	fmt.Println("  [--global] venv-manager <command> [arguments]")
-	fmt.Println("\nCommands:")
-	fmt.Println("  create <name> [python-version]  - Create a new virtual environment")
-	fmt.Println("  activate <name>                 - Print command to activate environment")
-	fmt.Println("  install <name>                 - Install packages from requirements file")
-	fmt.Println("  list                           - List all virtual environments")
-	fmt.Println("  remove <name>                  - Remove a virtual environment")
-	fmt.Println("  clone <source> <target>        - Clone a virtual environment")
-	fmt.Println("  upgrade <name>                 - Upgrade all packages in environment")
-	fmt.Println("  clean <name>                   - Clean cache and temporary files")
-	fmt.Println("\nFlags:")
-	fmt.Println("  --global                       - Apply command to all environments")
+	fmt.Printf("\n%s📚 Usage:%s\n", colorCyan, colorReset)
+	fmt.Printf("  %s[--global] venv-manager <command> [arguments]%s\n\n", colorLight, colorReset)
+
+	fmt.Printf("%s🛠️  Commands:%s\n", colorCyan, colorReset)
+	commands := []struct {
+		cmd, args, desc, emoji string
+	}{
+		{"create", "<name> [python-version]", "Create new virtual environment", "🆕"},
+		{"list", "", "List all environments", "📋"},
+		{"remove", "<name>", "Remove environment", "🗑️"},
+		{"clone", "<source> <target>", "Clone environment", "📋"},
+		{"packages", "<name>", "List installed packages", "📦"},
+		{"install", "<name> <requirements>", "Install from requirements", "⬇️"},
+		{"upgrade", "<name>", "Upgrade all packages", "⬆️"},
+		{"clean", "<name>", "Clean cache files", "🧹"},
+		{"activate", "<name>", "Activate environment", "▶️"},
+		{"deactivate", "", "Deactivate environment", "⏹️"},
+	}
+
+	for _, cmd := range commands {
+		fmt.Printf("  %s%-10s %-20s %s %s%s\n",
+			colorLight, cmd.cmd, cmd.args, cmd.emoji, cmd.desc, colorReset)
+	}
+
+	fmt.Printf("\n%s🚩 Flags:%s\n", colorCyan, colorReset)
+	fmt.Printf("  %s--global%20s🌐 Apply to all environments%s\n",
+		colorLight, "", colorReset)
 }
