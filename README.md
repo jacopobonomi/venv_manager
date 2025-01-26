@@ -12,7 +12,12 @@ A powerful CLI tool for managing Python virtual environments with ease.
 - Clean cache and temporary files
 - Smart environment activation
 
-## Installation 🚀
+## One command install 🚀
+```bash
+curl -sSL https://raw.githubusercontent.com/jacopobonomi/venv_manager/main/install.sh | bash
+```
+
+## Installation
 
 ```bash
 # Clone repository
