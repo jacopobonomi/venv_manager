@@ -1,36 +1,58 @@
 name: Release
 
 on:
-  push:
-    branches:
-      - main
+ push:
+   branches:
+     - main
+
+permissions:
+ contents: write
 
 jobs:
-  release:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v3
-
-      - name: Set up Go
-        uses: actions/setup-go@v4
-        with:
-          go-version: "1.21"
-
-      - name: Build
-        run: |
-          go build -o venv-manager cmd/venv-manager/main.go
-
-      - name: Get version
-        id: get_version
-        run: echo "::set-output name=version::$(date +'%Y.%m.%d')"
-
-      - name: Create Release
-        uses: softprops/action-gh-release@v1
-        with:
-          tag_name: v${{ steps.get_version.outputs.version }}
-          files: |
-            venv-manager
-            README.md
-            LICENSE
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+ release:
+   strategy:
+     matrix:
+       include:
+         - os: ubuntu-latest
+           arch: amd64
+           binary: venv-manager
+         - os: ubuntu-latest 
+           arch: arm64
+           binary: venv-manager-arm64
+         - os: windows-latest
+           arch: amd64
+           binary: venv-manager.exe
+         - os: macos-latest
+           arch: amd64
+           binary: venv-manager-darwin
+         - os: macos-latest
+           arch: arm64
+           binary: venv-manager-darwin-arm64
+           
+   runs-on: ${{ matrix.os }}
+   
+   steps:
+     - uses: actions/checkout@v3
+     
+     - uses: actions/setup-go@v4
+       with:
+         go-version: '1.21'
+         
+     - name: Build
+       env:
+         GOOS: ${{ matrix.os == 'windows-latest' && 'windows' || matrix.os == 'macos-latest' && 'darwin' || 'linux' }}
+         GOARCH: ${{ matrix.arch }}
+       run: |
+         go build -o ${{ matrix.binary }} cmd/venv-manager/main.go
+         
+     - name: Get version
+       id: get_version
+       run: echo "version=$(date +'%Y.%m.%d')" >> $GITHUB_OUTPUT
+       
+     - name: Create Release
+       uses: softprops/action-gh-release@v1
+       with:
+         tag_name: v${{ steps.get_version.outputs.version }}
+         files: ${{ matrix.binary }}
+       env:
+         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
