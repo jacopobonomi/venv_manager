@@ -2,6 +2,8 @@
 
 A powerful CLI tool for managing Python virtual environments with ease.
 
+![example_cli](https://github.com/jacopobonomi/venv_manager/blob/main/terminal_example.gif)
+
 ## Features ✨
 
 - Create and manage environments
@@ -11,6 +13,15 @@ A powerful CLI tool for managing Python virtual environments with ease.
 - Upgrade packages globally or per environment
 - Clean cache and temporary files
 - Smart environment activation
+
+| Feature | venv-manager | virtualenv | pyenv-virtualenv | Poetry | Pipenv |
+|---------|-------------|------------|-----------------|--------|--------|
+| **Create and manage environments** | ✅ | ✅ | ✅ | ✅ | ✅ |
+| **List all environments** | ✅ | ❌ | ❌ | ❌ | ❌ |
+| **Install packages and track dependencies** | ✅ | ❌ | ❌ | ✅ | ✅ |
+| **Clone environments** | ✅ | ❌ | ❌ | ✅ | ❌ |
+| **Upgrade packages globally or per environment** | ✅ | ❌ | ❌ | ✅ | ✅ |
+| **Clean cache and temporary files** | ✅ | ❌ | ❌ | ✅ | ❌ |
 
 ## One command install 🚀
 ```bash
