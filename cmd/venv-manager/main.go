@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 
 	"github.com/jacopobonomi/venv-manager/internal/manager"
+	"github.com/jacopobonomi/venv-manager/internal/utils"
 	"github.com/spf13/cobra"
 )
 
@@ -42,6 +43,7 @@ func init() {
 	rootCmd.AddCommand(cleanCmd())
 	rootCmd.AddCommand(activateCmd())
 	rootCmd.AddCommand(deactivateCmd())
+	rootCmd.AddCommand(sizeCmd())
 	rootCmd.AddCommand(completionCmd())
 }
 
@@ -261,6 +263,41 @@ func deactivateCmd() *cobra.Command {
 		Short: "Deactivate the current virtual environment",
 		Run: func(cmd *cobra.Command, args []string) {
 			fmt.Println("deactivate")
+		},
+	}
+	return cmd
+}
+
+func sizeCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "size [name]",
+		Short: "Check the size of a virtual environment",
+		Run: func(cmd *cobra.Command, args []string) {
+			mgr.SetGlobal(globalFlag)
+			name := ""
+			if len(args) > 0 && !globalFlag {
+				name = args[0]
+			}
+			
+			// Display appropriate header
+			if name != "" {
+				fmt.Printf("%s📊 Size of virtual environment '%s':%s\n", colorYellow, name, colorReset)
+			} else if globalFlag {
+				fmt.Printf("%s📊 Sizes of all virtual environments:%s\n", colorYellow, colorReset)
+			}
+			
+			// Get sizes from manager
+			sizes, err := mgr.GetSize(name)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "%s%v%s\n", colorRed, err, colorReset)
+				os.Exit(1)
+			}
+			
+			// Display results
+			for venvName, size := range sizes {
+				sizeStr := utils.FormatSize(size)
+				fmt.Printf("- %s: %s\n", venvName, sizeStr)
+			}
 		},
 	}
 	return cmd

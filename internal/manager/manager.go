@@ -301,3 +301,38 @@ func (m *Manager) ListPackages(name string) ([]string, error) {
 	}
 	return result, nil
 }
+
+func (m *Manager) GetSize(name string) (map[string]int64, error) {
+	sizes := make(map[string]int64)
+	
+	if name != "" {
+		venvPath := filepath.Join(m.baseDir, name)
+		if !m.fs.Exists(venvPath) {
+			return nil, fmt.Errorf("venv '%s' does not exist", name)
+		}
+		
+		size, err := m.fs.GetDirSize(venvPath)
+		if err != nil {
+			return nil, err
+		}
+		sizes[name] = size
+	} else if m.global {
+		venvs, err := m.List()
+		if err != nil {
+			return nil, err
+		}
+		
+		for _, venv := range venvs {
+			venvPath := filepath.Join(m.baseDir, venv)
+			size, err := m.fs.GetDirSize(venvPath)
+			if err != nil {
+				return nil, err
+			}
+			sizes[venv] = size
+		}
+	} else {
+		return nil, fmt.Errorf("please specify a venv name or use --global flag")
+	}
+	
+	return sizes, nil
+}
