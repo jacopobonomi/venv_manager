@@ -13,6 +13,7 @@ A powerful CLI tool for managing Python virtual environments with ease.
 - Upgrade packages globally or per environment
 - Clean cache and temporary files
 - Smart environment activation
+- Shell completion for bash, zsh, fish, and powershell
 
 | Feature | venv-manager | virtualenv | pyenv-virtualenv | Poetry | Pipenv |
 |---------|-------------|------------|-----------------|--------|--------|
@@ -22,6 +23,7 @@ A powerful CLI tool for managing Python virtual environments with ease.
 | **Clone environments** | ✅ | ❌ | ❌ | ✅ | ❌ |
 | **Upgrade packages globally or per environment** | ✅ | ❌ | ❌ | ✅ | ✅ |
 | **Clean cache and temporary files** | ✅ | ❌ | ❌ | ✅ | ❌ |
+| **Shell completion** | ✅ | ❌ | ❌ | ✅ | ❌ |
 
 ## One command install 🚀
 ```bash
@@ -59,22 +61,26 @@ venv-manager upgrade myenv
 
 # Global operations
 venv-manager --global clean
+
+# Enable shell completion (bash example)
+source <(venv-manager completion bash)
 ```
 
 ## Commands 📖
 
 | Command | Description |
 |---------|-------------|
-| `create <name> [version]` | Create new environment |
-| `activate <name>` | Activate environment |
+| `create <n> [version]` | Create new environment |
+| `activate <n>` | Activate environment |
 | `deactivate` | Deactivate current environment |
 | `list` | Show all environments |
-| `remove <name>` | Delete environment |
+| `remove <n>` | Delete environment |
 | `clone <src> <dst>` | Clone environment |
-| `packages <name>` | List installed packages |
-| `install <name> <reqs>` | Install requirements |
-| `upgrade <name>` | Upgrade packages |
-| `clean <name>` | Clean cache files |
+| `packages <n>` | List installed packages |
+| `install <n> <reqs>` | Install requirements |
+| `upgrade <n>` | Upgrade packages |
+| `clean <n>` | Clean cache files |
+| `completion [bash|zsh|fish|powershell]` | Generate shell completion scripts |
 
 ## Development 🛠️
 

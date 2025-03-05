@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 
 	"github.com/jacopobonomi/venv-manager/internal/manager"
+	"github.com/spf13/cobra"
 )
 
 const (
@@ -17,187 +18,257 @@ const (
 	colorLight  = "\033[98m"
 )
 
-func main() {
-	if len(os.Args) < 2 {
-		printUsage()
-		os.Exit(1)
+var (
+	globalFlag bool
+	mgr        *manager.Manager
+	rootCmd    = &cobra.Command{
+		Use:   "venv-manager",
+		Short: "A powerful CLI tool for managing Python virtual environments",
+		Long:  "venv-manager is a CLI tool for creating, managing, and working with Python virtual environments.",
 	}
+)
 
-	global := false
-	args := os.Args[1:]
-	if args[0] == "--global" {
-		global = true
-		args = args[1:]
-	}
-
-	mgr := manager.New("")
-	mgr.SetGlobal(global)
-	switch args[0] {
-	case "activate":
-		if len(args) < 2 {
-			fmt.Printf("%s❌ Error: Missing venv name%s\n", colorRed, colorReset)
-			printUsage()
-			os.Exit(1)
-		}
-
-		venvPath := filepath.Join(mgr.GetBaseDir(), args[1])
-		if _, err := os.Stat(venvPath); os.IsNotExist(err) {
-			fmt.Printf("%s❌ Venv '%s' does not exist%s\n", colorRed, args[1], colorReset)
-			os.Exit(1)
-		}
-
-		fmt.Printf("Run: source %s/bin/activate", venvPath)
-
-	case "deactivate":
-		fmt.Println("Run: deactivate")
-
-	case "packages":
-		if len(args) < 2 {
-			fmt.Printf("%s❌ Error: Missing venv name%s\n", colorRed, colorReset)
-			printUsage()
-			os.Exit(1)
-		}
-		packages, err := mgr.ListPackages(args[1])
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "%v\n", err)
-			os.Exit(1)
-		}
-		fmt.Printf("%s📦 Packages in '%s':%s\n", colorYellow, args[1], colorReset)
-		for _, pkg := range packages {
-			fmt.Println(pkg)
-		}
-
-	case "install":
-		if len(args) < 3 {
-			fmt.Printf("%s❌ Error: Missing venv name or requirements file%s\n", colorRed, colorReset)
-			printUsage()
-			os.Exit(1)
-		}
-		if err := mgr.Install(args[1], args[2]); err != nil {
-			fmt.Fprintf(os.Stderr, "%v\n", err)
-			os.Exit(1)
-		}
-		fmt.Printf("%s📦 Installed requirements from '%s' to '%s'%s\n", colorGreen, args[2], args[1], colorReset)
-
-	case "clone":
-		if len(args) < 3 {
-			fmt.Printf("%s❌ Error: Missing source or target venv name%s\n", colorRed, colorReset)
-			printUsage()
-			os.Exit(1)
-		}
-		if err := mgr.Clone(args[1], args[2]); err != nil {
-			fmt.Fprintf(os.Stderr, "%v\n", err)
-			os.Exit(1)
-		}
-		fmt.Printf("%s📋 Cloned '%s' to '%s'%s\n", colorGreen, args[1], args[2], colorReset)
-
-	case "upgrade":
-		if len(args) < 2 && !global {
-			fmt.Printf("%s❌ Error: Missing venv name%s\n", colorRed, colorReset)
-			printUsage()
-			os.Exit(1)
-		}
-		name := ""
-		if !global {
-			name = args[1]
-		}
-		if err := mgr.Upgrade(name); err != nil {
-			fmt.Fprintf(os.Stderr, "%v\n", err)
-			os.Exit(1)
-		}
-		fmt.Printf("%s⬆️  Packages upgraded successfully%s\n", colorGreen, colorReset)
-
-	case "clean":
-		if len(args) < 2 && !global {
-			fmt.Printf("%s❌ Error: Missing venv name%s\n", colorRed, colorReset)
-			printUsage()
-			os.Exit(1)
-		}
-		name := ""
-		if !global {
-			name = args[1]
-		}
-		if err := mgr.Clean(name); err != nil {
-			fmt.Fprintf(os.Stderr, "%v\n", err)
-			os.Exit(1)
-		}
-		fmt.Printf("%s🧹 Environment cleaned successfully%s\n", colorGreen, colorReset)
-
-	case "create":
-		if len(os.Args) < 3 {
-			fmt.Printf("%s❌ Error: Missing venv name%s\n", colorRed, colorReset)
-			printUsage()
-			os.Exit(1)
-		}
-		pythonVersion := ""
-		if len(os.Args) > 3 {
-			pythonVersion = os.Args[3]
-		}
-		if err := mgr.Create(os.Args[2], pythonVersion); err != nil {
-			fmt.Fprintf(os.Stderr, "%v\n", err)
-			os.Exit(1)
-		}
-		fmt.Printf("%s✨ Created virtual environment '%s'%s\n", colorGreen, args[1], colorReset)
-
-	case "list":
-		venvs, err := mgr.List()
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "%v\n", err)
-			os.Exit(1)
-		}
-		if len(venvs) == 0 {
-			fmt.Printf("%s🌐 No virtual environments found%s\n", colorYellow, colorReset)
-			return
-		}
-		fmt.Printf("%s📂 Available virtual environments:%s\n", colorYellow, colorReset)
-		for _, venv := range venvs {
-			fmt.Printf("- %s\n", venv)
-		}
-
-	case "remove":
-		if len(os.Args) < 3 {
-			fmt.Printf("%s❌ Error: Missing venv name%s\n", colorRed, colorReset)
-			printUsage()
-			os.Exit(1)
-		}
-		if err := mgr.Remove(os.Args[2]); err != nil {
-			fmt.Fprintf(os.Stderr, "%v\n", err)
-			os.Exit(1)
-		}
-		fmt.Printf("%s🗑️  Removed virtual environment '%s'%s\n", colorGreen, args[1], colorReset)
-
-	default:
-		fmt.Printf("Unknown command: %s\n", os.Args[1])
-		printUsage()
-		os.Exit(1)
-	}
+func init() {
+	mgr = manager.New("")
+	
+	rootCmd.PersistentFlags().BoolVar(&globalFlag, "global", false, "Apply command to all environments")
+	rootCmd.AddCommand(createCmd())
+	rootCmd.AddCommand(listCmd())
+	rootCmd.AddCommand(removeCmd())
+	rootCmd.AddCommand(cloneCmd())
+	rootCmd.AddCommand(packagesCmd())
+	rootCmd.AddCommand(installCmd())
+	rootCmd.AddCommand(upgradeCmd())
+	rootCmd.AddCommand(cleanCmd())
+	rootCmd.AddCommand(activateCmd())
+	rootCmd.AddCommand(deactivateCmd())
+	rootCmd.AddCommand(completionCmd())
 }
-func printUsage() {
-	fmt.Printf("\n%s📚 Usage:%s\n", colorCyan, colorReset)
-	fmt.Printf("  %s[--global] venv-manager <command> [arguments]%s\n\n", colorLight, colorReset)
 
-	fmt.Printf("%s🛠️  Commands:%s\n", colorCyan, colorReset)
-	commands := []struct {
-		cmd, args, desc, emoji string
-	}{
-		{"create", "<name> [python-version]", "Create new virtual environment", "🆕"},
-		{"list", "", "List all environments", "📋"},
-		{"remove", "<name>", "Remove environment", "🗑️"},
-		{"clone", "<source> <target>", "Clone environment", "📋"},
-		{"packages", "<name>", "List installed packages", "📦"},
-		{"install", "<name> <requirements>", "Install from requirements", "⬇️"},
-		{"upgrade", "<name>", "Upgrade all packages", "⬆️"},
-		{"clean", "<name>", "Clean cache files", "🧹"},
-		{"activate", "<name>", "Activate environment", "▶️"},
-		{"deactivate", "", "Deactivate environment", "⏹️"},
+func completionCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "completion [bash|zsh|fish|powershell]",
+		Short: "Generate shell completion scripts",
+		Long: `Generate shell completion scripts for venv-manager.
+To load completions:
+
+Bash:
+  $ source <(venv-manager completion bash)
+
+Zsh:
+  # If shell completion is not already enabled in your environment,
+  # you will need to enable it. You can execute the following once:
+  $ echo "autoload -U compinit; compinit" >> ~/.zshrc
+
+  # To load completions for each session, execute once:
+  $ venv-manager completion zsh > "${fpath[1]}/_venv-manager"
+
+Fish:
+  $ venv-manager completion fish | source
+
+Powershell:
+  PS> venv-manager completion powershell | Out-String | Invoke-Expression
+`,
+		DisableFlagsInUseLine: true,
+		ValidArgs:             []string{"bash", "zsh", "fish", "powershell"},
+		Args:                  cobra.ExactValidArgs(1),
+		Run: func(cmd *cobra.Command, args []string) {
+			switch args[0] {
+			case "bash":
+				cmd.Root().GenBashCompletion(os.Stdout)
+			case "zsh":
+				cmd.Root().GenZshCompletion(os.Stdout)
+			case "fish":
+				cmd.Root().GenFishCompletion(os.Stdout, true)
+			case "powershell":
+				cmd.Root().GenPowerShellCompletionWithDesc(os.Stdout)
+			}
+		},
 	}
+	return cmd
+}
 
-	for _, cmd := range commands {
-		fmt.Printf("  %s%-10s %-20s %s %s%s\n",
-			colorLight, cmd.cmd, cmd.args, cmd.emoji, cmd.desc, colorReset)
+func createCmd() *cobra.Command {
+	var pythonVersion string
+	cmd := &cobra.Command{
+		Use:   "create <name> [python-version]",
+		Short: "Create a new virtual environment",
+		Args:  cobra.MinimumNArgs(1),
+		Run: func(cmd *cobra.Command, args []string) {
+			mgr.SetGlobal(globalFlag)
+			if err := mgr.Create(args[0], pythonVersion); err != nil {
+				fmt.Fprintf(os.Stderr, "%v\n", err)
+				os.Exit(1)
+			}
+			fmt.Printf("%s✨ Created virtual environment '%s'%s\n", colorGreen, args[0], colorReset)
+		},
 	}
+	cmd.Flags().StringVar(&pythonVersion, "python", "", "Python version to use")
+	return cmd
+}
 
-	fmt.Printf("\n%s🚩 Flags:%s\n", colorCyan, colorReset)
-	fmt.Printf("  %s--global%20s🌐 Apply to all environments%s\n",
-		colorLight, "", colorReset)
+func listCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "list",
+		Short: "List all virtual environments",
+		Run: func(cmd *cobra.Command, args []string) {
+			venvs, err := mgr.List()
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "%v\n", err)
+				os.Exit(1)
+			}
+			if len(venvs) == 0 {
+				fmt.Printf("%s🌐 No virtual environments found%s\n", colorYellow, colorReset)
+				return
+			}
+			fmt.Printf("%s📂 Available virtual environments:%s\n", colorYellow, colorReset)
+			for _, venv := range venvs {
+				fmt.Printf("- %s\n", venv)
+			}
+		},
+	}
+	return cmd
+}
+
+func removeCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "remove <name>",
+		Short: "Remove a virtual environment",
+		Args:  cobra.ExactArgs(1),
+		Run: func(cmd *cobra.Command, args []string) {
+			if err := mgr.Remove(args[0]); err != nil {
+				fmt.Fprintf(os.Stderr, "%v\n", err)
+				os.Exit(1)
+			}
+			fmt.Printf("%s🗑️  Removed virtual environment '%s'%s\n", colorGreen, args[0], colorReset)
+		},
+	}
+	return cmd
+}
+
+func cloneCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "clone <source> <target>",
+		Short: "Clone an existing environment",
+		Args:  cobra.ExactArgs(2),
+		Run: func(cmd *cobra.Command, args []string) {
+			if err := mgr.Clone(args[0], args[1]); err != nil {
+				fmt.Fprintf(os.Stderr, "%v\n", err)
+				os.Exit(1)
+			}
+			fmt.Printf("%s📋 Cloned '%s' to '%s'%s\n", colorGreen, args[0], args[1], colorReset)
+		},
+	}
+	return cmd
+}
+
+func packagesCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "packages <name>",
+		Short: "List installed packages in an environment",
+		Args:  cobra.ExactArgs(1),
+		Run: func(cmd *cobra.Command, args []string) {
+			packages, err := mgr.ListPackages(args[0])
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "%v\n", err)
+				os.Exit(1)
+			}
+			fmt.Printf("%s📦 Packages in '%s':%s\n", colorYellow, args[0], colorReset)
+			for _, pkg := range packages {
+				fmt.Println(pkg)
+			}
+		},
+	}
+	return cmd
+}
+
+func installCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "install <name> <requirements-file>",
+		Short: "Install packages from requirements file",
+		Args:  cobra.ExactArgs(2),
+		Run: func(cmd *cobra.Command, args []string) {
+			if err := mgr.Install(args[0], args[1]); err != nil {
+				fmt.Fprintf(os.Stderr, "%v\n", err)
+				os.Exit(1)
+			}
+			fmt.Printf("%s📦 Installed requirements from '%s' to '%s'%s\n", colorGreen, args[1], args[0], colorReset)
+		},
+	}
+	return cmd
+}
+
+func upgradeCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "upgrade [name]",
+		Short: "Upgrade packages in an environment",
+		Run: func(cmd *cobra.Command, args []string) {
+			mgr.SetGlobal(globalFlag)
+			name := ""
+			if len(args) > 0 && !globalFlag {
+				name = args[0]
+			}
+			if err := mgr.Upgrade(name); err != nil {
+				fmt.Fprintf(os.Stderr, "%v\n", err)
+				os.Exit(1)
+			}
+			fmt.Printf("%s⬆️  Packages upgraded successfully%s\n", colorGreen, colorReset)
+		},
+	}
+	return cmd
+}
+
+func cleanCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "clean [name]",
+		Short: "Clean cache files",
+		Run: func(cmd *cobra.Command, args []string) {
+			mgr.SetGlobal(globalFlag)
+			name := ""
+			if len(args) > 0 && !globalFlag {
+				name = args[0]
+			}
+			if err := mgr.Clean(name); err != nil {
+				fmt.Fprintf(os.Stderr, "%v\n", err)
+				os.Exit(1)
+			}
+			fmt.Printf("%s🧹 Environment cleaned successfully%s\n", colorGreen, colorReset)
+		},
+	}
+	return cmd
+}
+
+func activateCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "activate <name>",
+		Short: "Activate a virtual environment",
+		Args:  cobra.ExactArgs(1),
+		Run: func(cmd *cobra.Command, args []string) {
+			venvPath := filepath.Join(mgr.GetBaseDir(), args[0])
+			if _, err := os.Stat(venvPath); os.IsNotExist(err) {
+				fmt.Printf("%s❌ Venv '%s' does not exist%s\n", colorRed, args[0], colorReset)
+				os.Exit(1)
+			}
+			fmt.Printf("source %s/bin/activate", venvPath)
+		},
+	}
+	return cmd
+}
+
+func deactivateCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "deactivate",
+		Short: "Deactivate the current virtual environment",
+		Run: func(cmd *cobra.Command, args []string) {
+			fmt.Println("deactivate")
+		},
+	}
+	return cmd
+}
+
+func main() {
+	if err := rootCmd.Execute(); err != nil {
+		fmt.Fprintf(os.Stderr, "%s%v%s\n", colorRed, err, colorReset)
+		os.Exit(1)
+	}
 }
