@@ -7,6 +7,7 @@ import (
 
 	"github.com/jacopobonomi/venv-manager/internal/config"
 	"github.com/jacopobonomi/venv-manager/internal/manager"
+	"github.com/jacopobonomi/venv-manager/internal/tui"
 	"github.com/jacopobonomi/venv-manager/internal/utils"
 	"github.com/spf13/cobra"
 )
@@ -52,7 +53,7 @@ func init() {
 		packagesCmd(), installCmd(), upgradeCmd(), cleanCmd(),
 		activateCmd(), deactivateCmd(), sizeCmd(),
 		runCmd(), doctorCmd(), pruneCmd(), exportCmd(), importCmd(),
-		configCmd(), completionCmd(),
+		configCmd(), tuiCmd(), completionCmd(),
 	)
 }
 
@@ -431,6 +432,18 @@ func configCmd() *cobra.Command {
 		},
 	})
 	return cmd
+}
+
+func tuiCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "tui",
+		Short: "Interactive TUI to browse and manage virtual environments",
+		Run: func(_ *cobra.Command, _ []string) {
+			if err := tui.Run(mgr); err != nil {
+				die(err)
+			}
+		},
+	}
 }
 
 func completionCmd() *cobra.Command {

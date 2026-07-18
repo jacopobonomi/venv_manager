@@ -20,6 +20,7 @@ A powerful CLI tool for managing Python virtual environments with ease.
 - `export` / `import` a venv manifest as JSON
 - Config file at `~/.config/venv-manager/config.json`
 - `--json` output on `list`, `packages`, `size`, `doctor`, `prune`
+- Interactive TUI (`venv-manager tui`) powered by Bubble Tea
 
 | Feature | venv-manager | virtualenv | pyenv-virtualenv | Poetry | Pipenv |
 |---------|-------------|------------|-----------------|--------|--------|
@@ -100,6 +101,7 @@ source <(venv-manager completion bash)
 | `export <n>` | Print venv manifest as JSON |
 | `import <manifest.json>` | Recreate venv from a manifest |
 | `config show\|path\|init` | Show / locate / bootstrap the config file |
+| `tui` | Interactive terminal UI |
 | `completion [bash\|zsh\|fish\|powershell]` | Generate shell completion scripts |
 
 ## Configuration
