@@ -6,15 +6,20 @@ A powerful CLI tool for managing Python virtual environments with ease.
 
 ## Features ✨
 
-- Create and manage environments
-- List all environments
+- Create and manage environments (optional `uv` backend for 10-100x faster venvs)
+- List, rename, remove, clone environments
 - Install packages and track dependencies
-- Clone environments
 - Upgrade packages globally or per environment
 - Clean cache and temporary files
 - Smart environment activation
 - Shell completion for bash, zsh, fish, and powershell
 - Size check for environments
+- `run` a command inside a venv without activating it
+- `doctor` for environment diagnostics
+- `prune` stale/unused environments
+- `export` / `import` a venv manifest as JSON
+- Config file at `~/.config/venv-manager/config.json`
+- `--json` output on `list`, `packages`, `size`, `doctor`, `prune`
 
 | Feature | venv-manager | virtualenv | pyenv-virtualenv | Poetry | Pipenv |
 |---------|-------------|------------|-----------------|--------|--------|
@@ -88,7 +93,33 @@ source <(venv-manager completion bash)
 | `upgrade <n>` | Upgrade packages |
 | `clean <n>` | Clean cache files |
 | `size <n>` | Check environment size |
-| `completion [bash|zsh|fish|powershell]` | Generate shell completion scripts |
+| `rename <old> <new>` | Rename an environment |
+| `run <n> -- <cmd>` | Run a command inside a venv without activating it |
+| `doctor` | Diagnose environment (python versions, uv, broken venvs) |
+| `prune [--days N] [--dry-run]` | Remove venvs unused for N days |
+| `export <n>` | Print venv manifest as JSON |
+| `import <manifest.json>` | Recreate venv from a manifest |
+| `config show\|path\|init` | Show / locate / bootstrap the config file |
+| `completion [bash\|zsh\|fish\|powershell]` | Generate shell completion scripts |
+
+## Configuration
+
+Config lives at `~/.config/venv-manager/config.json` (override with `$VENV_MANAGER_CONFIG` or `$XDG_CONFIG_HOME`):
+
+```json
+{
+  "base_dir": "/custom/path/to/venvs",
+  "default_python": "3.12",
+  "use_uv": true,
+  "prune_after_days": 90
+}
+```
+
+Bootstrap it: `venv-manager config init`.
+
+## uv backend
+
+If [`uv`](https://github.com/astral-sh/uv) is installed and `use_uv: true` is set in the config, `create` uses `uv venv` — dramatically faster than `python -m venv`.
 
 ## Development 🛠️
 
