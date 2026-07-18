@@ -7,6 +7,7 @@ import (
 
 	"github.com/jacopobonomi/venv-manager/internal/config"
 	"github.com/jacopobonomi/venv-manager/internal/manager"
+	"github.com/jacopobonomi/venv-manager/internal/mcp"
 	"github.com/jacopobonomi/venv-manager/internal/tui"
 	"github.com/jacopobonomi/venv-manager/internal/utils"
 	"github.com/spf13/cobra"
@@ -53,7 +54,7 @@ func init() {
 		packagesCmd(), installCmd(), upgradeCmd(), cleanCmd(),
 		activateCmd(), deactivateCmd(), sizeCmd(),
 		runCmd(), doctorCmd(), pruneCmd(), exportCmd(), importCmd(),
-		configCmd(), tuiCmd(), completionCmd(),
+		configCmd(), tuiCmd(), describeCmd(), execCmd(), mcpCmd(), completionCmd(),
 	)
 }
 
@@ -432,6 +433,86 @@ func configCmd() *cobra.Command {
 		},
 	})
 	return cmd
+}
+
+func describeCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "describe <name>",
+		Short: "Print a full JSON description of a venv (for scripts & AI agents)",
+		Args:  cobra.ExactArgs(1),
+		Run: func(_ *cobra.Command, args []string) {
+			d, err := mgr.Describe(args[0])
+			if err != nil {
+				die(err)
+			}
+			printJSON(d)
+		},
+	}
+}
+
+func execCmd() *cobra.Command {
+	var (
+		packages      []string
+		reqFile       string
+		pythonVersion string
+		sandbox       bool
+		keep          bool
+	)
+	cmd := &cobra.Command{
+		Use:   "exec [flags] -- <command> [args...]",
+		Short: "Create a temporary venv, install packages, run a command, then delete the venv",
+		Long: `Ephemeral execution: like uvx / pipx run.
+The venv is created, packages installed, command executed, then everything torn down.
+
+Examples:
+  venv-manager exec --with requests -- python -c "import requests; print(requests.__version__)"
+  venv-manager exec --with pandas,numpy --python 3.12 -- python script.py
+  venv-manager exec --sandbox --with requests -- python untrusted.py`,
+		Args: cobra.MinimumNArgs(1),
+		Run: func(_ *cobra.Command, args []string) {
+			opts := manager.ExecOptions{
+				Packages:         packages,
+				RequirementsFile: reqFile,
+				PythonVersion:    pythonVersion,
+				Sandbox:          sandbox,
+				Keep:             keep,
+			}
+			if err := mgr.Exec(opts, args); err != nil {
+				die(err)
+			}
+		},
+	}
+	cmd.Flags().StringSliceVar(&packages, "with", nil, "Packages to install (comma-separated or repeated)")
+	cmd.Flags().StringVarP(&reqFile, "requirements", "r", "", "Requirements file to install")
+	cmd.Flags().StringVar(&pythonVersion, "python", "", "Python version (e.g. 3.12)")
+	cmd.Flags().BoolVar(&sandbox, "sandbox", false, "Run under OS sandbox (macOS: sandbox-exec, Linux: bwrap). Blocks network + restricts filesystem.")
+	cmd.Flags().BoolVar(&keep, "keep", false, "Do not delete the ephemeral venv after execution")
+	return cmd
+}
+
+func mcpCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "mcp",
+		Short: "Run as a Model Context Protocol server over stdio",
+		Long: `Speak MCP over stdio so AI clients (Claude Desktop, Cursor, Zed, ...)
+can list, create, describe, and run inside venvs as native tools.
+
+Wire it up in Claude Desktop by adding to claude_desktop_config.json:
+
+  {
+    "mcpServers": {
+      "venv-manager": {
+        "command": "venv-manager",
+        "args": ["mcp"]
+      }
+    }
+  }`,
+		Run: func(_ *cobra.Command, _ []string) {
+			if err := mcp.NewServer(mgr).Serve(); err != nil {
+				die(err)
+			}
+		},
+	}
 }
 
 func tuiCmd() *cobra.Command {

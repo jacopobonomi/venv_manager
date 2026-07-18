@@ -21,6 +21,8 @@ A powerful CLI tool for managing Python virtual environments with ease.
 - Config file at `~/.config/venv-manager/config.json`
 - `--json` output on `list`, `packages`, `size`, `doctor`, `prune`
 - Interactive TUI (`venv-manager tui`) powered by Bubble Tea
+- **AI-friendly**: `describe` (full JSON snapshot), `exec` (ephemeral venvs like `uvx`), `mcp` (Model Context Protocol server for Claude Desktop / Cursor / Zed)
+- **Sandboxed execution** with `--sandbox` flag (macOS `sandbox-exec`, Linux `bwrap`)
 
 | Feature | venv-manager | virtualenv | pyenv-virtualenv | Poetry | Pipenv |
 |---------|-------------|------------|-----------------|--------|--------|
@@ -102,6 +104,9 @@ source <(venv-manager completion bash)
 | `import <manifest.json>` | Recreate venv from a manifest |
 | `config show\|path\|init` | Show / locate / bootstrap the config file |
 | `tui` | Interactive terminal UI |
+| `describe <n>` | Print a full JSON snapshot of a venv |
+| `exec [--with pkg,...] [--sandbox] -- <cmd>` | Ephemeral venv: install, run, cleanup |
+| `mcp` | Run as MCP server over stdio (for AI clients) |
 | `completion [bash\|zsh\|fish\|powershell]` | Generate shell completion scripts |
 
 ## Configuration
@@ -118,6 +123,34 @@ Config lives at `~/.config/venv-manager/config.json` (override with `$VENV_MANAG
 ```
 
 Bootstrap it: `venv-manager config init`.
+
+## AI integration
+
+**MCP server** — expose venv-manager as native tools to AI clients that speak the Model Context Protocol.
+
+Claude Desktop (`~/Library/Application Support/Claude/claude_desktop_config.json`):
+
+```json
+{
+  "mcpServers": {
+    "venv-manager": {
+      "command": "venv-manager",
+      "args": ["mcp"]
+    }
+  }
+}
+```
+
+Tools exposed: `list_venvs`, `create_venv`, `remove_venv`, `describe_venv`, `install_packages`, `run_in_venv`, `exec_ephemeral`, `doctor`.
+
+**Ephemeral execution** — run AI-generated code without polluting global state:
+
+```bash
+venv-manager exec --with requests -- python -c "import requests; print(requests.__version__)"
+venv-manager exec --sandbox --with pandas -- python untrusted_script.py
+```
+
+`--sandbox` blocks network and restricts filesystem writes (macOS: `sandbox-exec`, Linux: `bwrap`).
 
 ## uv backend
 
