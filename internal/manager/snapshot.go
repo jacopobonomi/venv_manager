@@ -98,7 +98,15 @@ func (m *Manager) ListSnapshots(name string) ([]Snapshot, error) {
 			Path:         filepath.Join(dir, e.Name()),
 		})
 	}
-	sort.Slice(snaps, func(i, j int) bool { return snaps[i].CreatedAt.After(snaps[j].CreatedAt) })
+	// Sort newest-first; fall back to ID (which embeds the timestamp) when
+	// mtimes tie — filesystems on fast CI runners can produce identical
+	// nanosecond mtimes for files written back-to-back.
+	sort.Slice(snaps, func(i, j int) bool {
+		if !snaps[i].CreatedAt.Equal(snaps[j].CreatedAt) {
+			return snaps[i].CreatedAt.After(snaps[j].CreatedAt)
+		}
+		return snaps[i].ID > snaps[j].ID
+	})
 	return snaps, nil
 }
 

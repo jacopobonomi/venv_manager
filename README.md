@@ -1,5 +1,11 @@
 # venv-manager
 
+[![CI](https://github.com/jacopobonomi/venv_manager/actions/workflows/ci.yml/badge.svg)](https://github.com/jacopobonomi/venv_manager/actions/workflows/ci.yml)
+[![Go Report Card](https://goreportcard.com/badge/github.com/jacopobonomi/venv-manager)](https://goreportcard.com/report/github.com/jacopobonomi/venv-manager)
+[![Go Reference](https://pkg.go.dev/badge/github.com/jacopobonomi/venv-manager.svg)](https://pkg.go.dev/github.com/jacopobonomi/venv-manager)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Release](https://img.shields.io/github/v/release/jacopobonomi/venv_manager)](https://github.com/jacopobonomi/venv_manager/releases)
+
 A Python virtual-environment runtime for humans **and** AI agents.
 
 Written in Go. One static binary, no runtime deps beyond `python3` (or `uv`, if available).

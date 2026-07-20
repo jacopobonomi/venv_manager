@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestSanitizeLabel(t *testing.T) {
@@ -53,8 +54,21 @@ func TestListSnapshotsSortsNewestFirst(t *testing.T) {
 	m, dir := newTestMgr(t)
 	v := filepath.Join(dir, "v")
 	os.MkdirAll(filepath.Join(v, ".venv-manager", "snapshots"), 0o755)
-	os.WriteFile(filepath.Join(v, ".venv-manager", "snapshots", "20260101-100000.txt"), []byte("pkg==1\n"), 0o644)
-	os.WriteFile(filepath.Join(v, ".venv-manager", "snapshots", "20260201-100000.txt"), []byte("pkg==2\n"), 0o644)
+	older := filepath.Join(v, ".venv-manager", "snapshots", "20260101-100000.txt")
+	newer := filepath.Join(v, ".venv-manager", "snapshots", "20260201-100000.txt")
+	os.WriteFile(older, []byte("pkg==1\n"), 0o644)
+	os.WriteFile(newer, []byte("pkg==2\n"), 0o644)
+	// Explicit mtimes: some CI filesystems collapse back-to-back writes to
+	// identical nanosecond mtimes, which would make the sort order depend
+	// on filename tie-break rather than time.
+	past := time.Date(2026, 1, 1, 10, 0, 0, 0, time.UTC)
+	future := time.Date(2026, 2, 1, 10, 0, 0, 0, time.UTC)
+	if err := os.Chtimes(older, past, past); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chtimes(newer, future, future); err != nil {
+		t.Fatal(err)
+	}
 
 	snaps, err := m.ListSnapshots("v")
 	if err != nil {
@@ -63,7 +77,7 @@ func TestListSnapshotsSortsNewestFirst(t *testing.T) {
 	if len(snaps) != 2 {
 		t.Fatalf("expected 2, got %v", snaps)
 	}
-	if !snaps[0].CreatedAt.After(snaps[1].CreatedAt) {
+	if snaps[0].ID != "20260201-100000" {
 		t.Fatalf("expected newest first: %v", snaps)
 	}
 }
