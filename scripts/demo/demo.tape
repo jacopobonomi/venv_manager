@@ -4,7 +4,7 @@
 #   vhs scripts/demo/demo.tape
 # Produces demo.gif in the current directory.
 #
-# Requires: vhs, and venv-manager on PATH.
+# Requires: vhs, venv-manager on PATH, git.
 
 Output demo.gif
 
@@ -15,28 +15,22 @@ Set Theme "Catppuccin Mocha"
 Set TypingSpeed 40ms
 Set PlaybackSpeed 1.0
 
-# --- Setup (hidden) ---
+# --- Hidden setup: fresh mktemp dir + isolated config + venv created ---
 Hide
-Type "export DEMO_DIR=$(mktemp -d) && export XDG_CONFIG_HOME=$DEMO_DIR/xdg && mkdir -p $XDG_CONFIG_HOME/venv-manager && echo '{\"base_dir\":\"'$DEMO_DIR'/venvs\"}' > $XDG_CONFIG_HOME/venv-manager/config.json"
+Type "source scripts/demo/setup.sh"
 Enter
-Sleep 300ms
-Type "cp $(git rev-parse --show-toplevel)/scripts/demo/ai_writes_code.sh $DEMO_DIR/ai_writes_code.sh && chmod +x $DEMO_DIR/ai_writes_code.sh"
-Enter
-Sleep 300ms
-Type "cd $DEMO_DIR && venv-manager create ai-demo >/dev/null && clear"
-Enter
-Sleep 500ms
+Sleep 800ms
 Show
 
 # --- Scene 1: pitch ---
-Type "# 🤖 venv-manager: AI writes Python, the venv installs itself"
+Type "# venv-manager: AI writes Python, the venv installs itself"
 Sleep 2500ms
 Enter
 Sleep 500ms
 Type "clear"
 Enter
 
-# --- Scene 2: launch watch, then run the AI simulator ---
+# --- Scene 2: launch watch ---
 Type "# 1) watch keeps the venv in sync with the file"
 Enter
 Sleep 1s
@@ -45,16 +39,18 @@ Enter
 Sleep 1500ms
 Type "clear"
 Enter
+
+# --- Scene 3: simulated AI agent writes progressively ---
 Type "# 2) an AI agent starts writing code..."
 Enter
 Sleep 1500ms
 Type "./ai_writes_code.sh app.py"
 Enter
 
-# Full run of ai_writes_code.sh (~15s) + rich install (~5s)
+# ai_writes_code.sh runs ~15s; give ~7s more for the final rich install
 Sleep 22s
 
-# --- Scene 3: prove it works ---
+# --- Scene 4: prove it worked ---
 Type "clear"
 Enter
 Type "# The venv has requests + rich. No manual pip install."
@@ -73,7 +69,7 @@ Type "venv-manager describe ai-demo | head -20"
 Enter
 Sleep 4s
 
-# --- Scene 4: outro ---
+# --- Scene 5: outro ---
 Type "clear"
 Enter
 Type "# Zero manual pip install. Zero venv drift."
@@ -83,7 +79,7 @@ Type "# github.com/jacopobonomi/venv_manager"
 Enter
 Sleep 3500ms
 
-# --- Cleanup (hidden) ---
+# --- Hidden cleanup ---
 Hide
 Type "kill %1 2>/dev/null; venv-manager remove ai-demo >/dev/null 2>&1; rm -rf $DEMO_DIR"
 Enter
