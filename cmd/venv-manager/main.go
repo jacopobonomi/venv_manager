@@ -54,7 +54,9 @@ func init() {
 		packagesCmd(), installCmd(), upgradeCmd(), cleanCmd(),
 		activateCmd(), deactivateCmd(), sizeCmd(),
 		runCmd(), doctorCmd(), pruneCmd(), exportCmd(), importCmd(),
-		configCmd(), tuiCmd(), describeCmd(), execCmd(), mcpCmd(), completionCmd(),
+		configCmd(), tuiCmd(), describeCmd(), execCmd(), mcpCmd(),
+		snapshotCmd(), snapshotsCmd(), rollbackCmd(), scanCmd(), watchCmd(),
+		completionCmd(),
 	)
 }
 
@@ -525,6 +527,126 @@ func tuiCmd() *cobra.Command {
 			}
 		},
 	}
+}
+
+func snapshotCmd() *cobra.Command {
+	var label string
+	cmd := &cobra.Command{
+		Use:   "snapshot <name>",
+		Short: "Capture the current pip freeze state of a venv",
+		Args:  cobra.ExactArgs(1),
+		Run: func(_ *cobra.Command, args []string) {
+			s, err := mgr.CreateSnapshot(args[0], label)
+			if err != nil {
+				die(err)
+			}
+			if jsonFlag {
+				printJSON(s)
+				return
+			}
+			fmt.Printf("%s📸 Snapshot %s created (%d packages)%s\n", colorGreen, s.ID, s.PackageCount, colorReset)
+		},
+	}
+	cmd.Flags().StringVarP(&label, "label", "l", "", "Optional label (e.g. 'pre-upgrade')")
+	return cmd
+}
+
+func snapshotsCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "snapshots <name>",
+		Short: "List snapshots for a venv (newest first)",
+		Args:  cobra.ExactArgs(1),
+		Run: func(_ *cobra.Command, args []string) {
+			snaps, err := mgr.ListSnapshots(args[0])
+			if err != nil {
+				die(err)
+			}
+			if jsonFlag {
+				printJSON(snaps)
+				return
+			}
+			if len(snaps) == 0 {
+				fmt.Printf("%sNo snapshots for '%s'%s\n", colorYellow, args[0], colorReset)
+				return
+			}
+			fmt.Printf("%s📸 Snapshots of '%s':%s\n", colorYellow, args[0], colorReset)
+			for _, s := range snaps {
+				fmt.Printf("- %s  (%d pkgs)  %s\n", s.ID, s.PackageCount, s.CreatedAt.Format("2006-01-02 15:04:05"))
+			}
+		},
+	}
+}
+
+func rollbackCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "rollback <name> [snapshot-id]",
+		Short: "Restore a venv from a snapshot (defaults to newest)",
+		Args:  cobra.RangeArgs(1, 2),
+		Run: func(_ *cobra.Command, args []string) {
+			id := ""
+			if len(args) == 2 {
+				id = args[1]
+			}
+			s, err := mgr.Rollback(args[0], id)
+			if err != nil {
+				die(err)
+			}
+			fmt.Printf("%s↩️  Restored '%s' from snapshot %s%s\n", colorGreen, args[0], s.ID, colorReset)
+		},
+	}
+}
+
+func scanCmd() *cobra.Command {
+	var venv string
+	cmd := &cobra.Command{
+		Use:   "scan <path>",
+		Short: "Scan a Python file or directory for third-party imports",
+		Args:  cobra.ExactArgs(1),
+		Run: func(_ *cobra.Command, args []string) {
+			rep, err := mgr.Scan(args[0], venv)
+			if err != nil {
+				die(err)
+			}
+			if jsonFlag {
+				printJSON(rep)
+				return
+			}
+			fmt.Printf("%s🔎 %s%s\n", colorYellow, rep.Summary(), colorReset)
+			if len(rep.ThirdParty) > 0 {
+				fmt.Printf("  Third-party imports : %v\n", rep.ThirdParty)
+				fmt.Printf("  Suggested pip pkgs  : %v\n", rep.SuggestedPackages)
+			}
+			if venv != "" {
+				if len(rep.Missing) == 0 {
+					fmt.Printf("%s✅ venv '%s' satisfies all imports%s\n", colorGreen, venv, colorReset)
+				} else {
+					fmt.Printf("%s⚠️  Missing in '%s': %v%s\n", colorRed, venv, rep.Missing, colorReset)
+				}
+			}
+		},
+	}
+	cmd.Flags().StringVar(&venv, "venv", "", "Check which imports are missing in this venv")
+	return cmd
+}
+
+func watchCmd() *cobra.Command {
+	var venv string
+	cmd := &cobra.Command{
+		Use:   "watch <path>",
+		Short: "Watch a Python file/dir and auto-install missing imports into a venv",
+		Long: `Monitors <path> and, whenever a .py file changes, scans imports and
+installs any missing packages into --venv. Great for AI-driven iteration
+where each generated snippet may pull in new dependencies.`,
+		Args: cobra.ExactArgs(1),
+		Run: func(_ *cobra.Command, args []string) {
+			if err := mgr.Watch(args[0], manager.WatchOptions{Venv: venv, Log: os.Stderr}); err != nil {
+				die(err)
+			}
+		},
+	}
+	cmd.Flags().StringVar(&venv, "venv", "", "Target venv to keep in sync (required)")
+	cmd.MarkFlagRequired("venv")
+	return cmd
 }
 
 func completionCmd() *cobra.Command {

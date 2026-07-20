@@ -212,6 +212,47 @@ func toolCatalog() []toolDef {
 			Description: "Report environment health: available python versions, uv presence, broken venvs.",
 			InputSchema: map[string]any{"type": "object", "properties": map[string]any{}},
 		},
+		{
+			Name:        "snapshot_venv",
+			Description: "Capture the current pip freeze state of a venv. Use before risky installs to enable rollback.",
+			InputSchema: map[string]any{
+				"type": "object", "required": []string{"name"},
+				"properties": map[string]any{
+					"name":  strProp("venv name"),
+					"label": strProp("optional label (e.g. 'pre-upgrade')"),
+				},
+			},
+		},
+		{
+			Name:        "list_snapshots",
+			Description: "List snapshots available for a venv.",
+			InputSchema: map[string]any{
+				"type": "object", "required": []string{"name"},
+				"properties": map[string]any{"name": strProp("venv name")},
+			},
+		},
+		{
+			Name:        "rollback_venv",
+			Description: "Restore a venv to a previous snapshot. Omit snapshot_id to restore the most recent.",
+			InputSchema: map[string]any{
+				"type": "object", "required": []string{"name"},
+				"properties": map[string]any{
+					"name":        strProp("venv name"),
+					"snapshot_id": strProp("snapshot id (see list_snapshots)"),
+				},
+			},
+		},
+		{
+			Name:        "scan_imports",
+			Description: "Parse Python file(s) and return third-party imports plus (optionally) which are missing in a venv. Use this before running AI-generated code to know what to install.",
+			InputSchema: map[string]any{
+				"type": "object", "required": []string{"path"},
+				"properties": map[string]any{
+					"path": strProp("file or directory path"),
+					"venv": strProp("optional venv to check installed packages against"),
+				},
+			},
+		},
 	}
 }
 
@@ -318,6 +359,34 @@ func (s *Server) dispatch(name string, args map[string]any) (string, error) {
 
 	case "doctor":
 		return toJSON(s.mgr.Doctor()), nil
+
+	case "snapshot_venv":
+		snap, err := s.mgr.CreateSnapshot(str(args, "name"), str(args, "label"))
+		if err != nil {
+			return "", err
+		}
+		return toJSON(snap), nil
+
+	case "list_snapshots":
+		snaps, err := s.mgr.ListSnapshots(str(args, "name"))
+		if err != nil {
+			return "", err
+		}
+		return toJSON(snaps), nil
+
+	case "rollback_venv":
+		snap, err := s.mgr.Rollback(str(args, "name"), str(args, "snapshot_id"))
+		if err != nil {
+			return "", err
+		}
+		return toJSON(snap), nil
+
+	case "scan_imports":
+		rep, err := s.mgr.Scan(str(args, "path"), str(args, "venv"))
+		if err != nil {
+			return "", err
+		}
+		return toJSON(rep), nil
 	}
 	return "", fmt.Errorf("unknown tool: %s", name)
 }

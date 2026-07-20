@@ -23,6 +23,9 @@ A powerful CLI tool for managing Python virtual environments with ease.
 - Interactive TUI (`venv-manager tui`) powered by Bubble Tea
 - **AI-friendly**: `describe` (full JSON snapshot), `exec` (ephemeral venvs like `uvx`), `mcp` (Model Context Protocol server for Claude Desktop / Cursor / Zed)
 - **Sandboxed execution** with `--sandbox` flag (macOS `sandbox-exec`, Linux `bwrap`)
+- **Snapshot & rollback**: capture pip-freeze state before risky installs; restore in one command
+- **Import scanner**: parse `.py` files to see which imports are third-party and which venv satisfies them
+- **Watch mode**: monitor a script and auto-install missing imports as it evolves (perfect for AI-driven iteration)
 
 | Feature | venv-manager | virtualenv | pyenv-virtualenv | Poetry | Pipenv |
 |---------|-------------|------------|-----------------|--------|--------|
@@ -107,6 +110,11 @@ source <(venv-manager completion bash)
 | `describe <n>` | Print a full JSON snapshot of a venv |
 | `exec [--with pkg,...] [--sandbox] -- <cmd>` | Ephemeral venv: install, run, cleanup |
 | `mcp` | Run as MCP server over stdio (for AI clients) |
+| `snapshot <n> [-l LABEL]` | Capture pip-freeze state of a venv |
+| `snapshots <n>` | List snapshots (newest first) |
+| `rollback <n> [id]` | Restore venv from snapshot (default: latest) |
+| `scan <path> [--venv N]` | Extract third-party imports; optionally check against a venv |
+| `watch <path> --venv N` | Auto-install missing imports on file change |
 | `completion [bash\|zsh\|fish\|powershell]` | Generate shell completion scripts |
 
 ## Configuration
