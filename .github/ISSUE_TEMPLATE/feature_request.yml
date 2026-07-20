@@ -1,0 +1,41 @@
+name: Feature request
+description: Propose a new capability or a change to an existing one.
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What are you trying to do that's currently awkward or impossible?
+      placeholder: "When an AI agent installs into the wrong venv, there's no way to know which venv was touched most recently."
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+      description: What should the tool do? Include the concrete CLI/MCP surface if you can.
+      placeholder: |
+        Add `venv-manager audit --since 1h` that prints a JSONL of every MCP tool
+        call in the given time window (who, what, when, exit status).
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Any workarounds you've tried, or other tools that solve this.
+
+  - type: dropdown
+    id: scope
+    attributes:
+      label: Scope
+      options:
+        - CLI only
+        - MCP tool only
+        - Both
+        - Config / behaviour change
+    validations:
+      required: true

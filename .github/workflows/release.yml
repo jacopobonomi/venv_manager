@@ -1,58 +1,49 @@
 name: Release
 
 on:
- push:
-   branches:
-     - main
+  push:
+    tags:
+      - 'v*.*.*'
 
 permissions:
- contents: write
+  contents: write
 
 jobs:
- release:
-   strategy:
-     matrix:
-       include:
-         - os: ubuntu-latest
-           arch: amd64
-           binary: venv-manager
-         - os: ubuntu-latest 
-           arch: arm64
-           binary: venv-manager-arm64
-         - os: windows-latest
-           arch: amd64
-           binary: venv-manager.exe
-         - os: macos-latest
-           arch: amd64
-           binary: venv-manager-darwin
-         - os: macos-latest
-           arch: arm64
-           binary: venv-manager-darwin-arm64
-           
-   runs-on: ${{ matrix.os }}
-   
-   steps:
-     - uses: actions/checkout@v3
-     
-     - uses: actions/setup-go@v4
-       with:
-         go-version: '1.21'
-         
-     - name: Build
-       env:
-         GOOS: ${{ matrix.os == 'windows-latest' && 'windows' || matrix.os == 'macos-latest' && 'darwin' || 'linux' }}
-         GOARCH: ${{ matrix.arch }}
-       run: |
-         go build -o ${{ matrix.binary }} cmd/venv-manager/main.go
-         
-     - name: Get version
-       id: get_version
-       run: echo "version=$(date +'%Y.%m.%d')" >> $GITHUB_OUTPUT
-       
-     - name: Create Release
-       uses: softprops/action-gh-release@v1
-       with:
-         tag_name: v${{ steps.get_version.outputs.version }}
-         files: ${{ matrix.binary }}
-       env:
-         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+  build:
+    strategy:
+      matrix:
+        include:
+          - goos: linux
+            goarch: amd64
+            binary: venv-manager
+          - goos: linux
+            goarch: arm64
+            binary: venv-manager-arm64
+          - goos: windows
+            goarch: amd64
+            binary: venv-manager.exe
+          - goos: darwin
+            goarch: amd64
+            binary: venv-manager-darwin
+          - goos: darwin
+            goarch: arm64
+            binary: venv-manager-darwin-arm64
+
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.24'
+      - name: Build
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          CGO_ENABLED: 0
+        run: go build -trimpath -ldflags="-s -w" -o ${{ matrix.binary }} ./cmd/venv-manager
+      - name: Upload to release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ${{ matrix.binary }}
+          fail_on_unmatched_files: true

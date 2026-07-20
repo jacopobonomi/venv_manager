@@ -1,0 +1,52 @@
+name: Bug report
+description: Something's broken. Please include enough detail to reproduce.
+labels: ["bug"]
+body:
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: Concise description of the actual behaviour.
+      placeholder: "`venv-manager watch app.py --venv X` exits immediately with 'no such file' instead of watching."
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Steps to reproduce
+      description: Exact commands. Assume the reader has a clean shell.
+      placeholder: |
+        1. venv-manager create test
+        2. touch /tmp/app.py
+        3. venv-manager watch /tmp/app.py --venv test
+      render: bash
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behaviour
+    validations:
+      required: true
+
+  - type: textarea
+    id: env
+    attributes:
+      label: Environment
+      description: Output of the commands below.
+      value: |
+        - venv-manager version:  <output of `venv-manager doctor`>
+        - OS:                    <macOS 14.5, Ubuntu 24.04, ...>
+        - Python version(s):     <output of `python3 --version`>
+        - Install method:        <install.sh | make install | Homebrew | source>
+      render: markdown
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant output / logs
+      render: shell
