@@ -277,7 +277,10 @@ func (m *Manager) Clean(name string) error {
 				return err
 			}
 			if info.IsDir() && info.Name() == "__pycache__" {
-				return os.RemoveAll(path)
+				if err := os.RemoveAll(path); err != nil {
+					return err
+				}
+				return filepath.SkipDir
 			}
 			return nil
 		})
