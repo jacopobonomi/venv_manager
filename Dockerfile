@@ -2,7 +2,7 @@
 # Runtime image ships the Go binary plus a real python3 so that MCP tools
 # (create_venv, exec_ephemeral, install_packages, …) actually work.
 
-FROM golang:1.21-alpine AS build
+FROM golang:1.24-alpine AS build
 WORKDIR /src
 COPY go.mod go.sum ./
 RUN go mod download
