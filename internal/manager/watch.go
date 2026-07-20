@@ -49,18 +49,32 @@ func (m *Manager) Watch(path string, opts WatchOptions) error {
 	defer watcher.Close()
 
 	// Watch the directory containing the path so that editor-atomic renames
-	// (write-to-tmp + rename) still fire events.
+	// (write-to-tmp + rename) still fire events. If path doesn't exist yet,
+	// treat it as a file whose directory should exist — watch the parent.
 	dir := path
-	if fi, err := statOrErr(path); err == nil && !fi.IsDir() {
+	fi, statErr := statOrErr(path)
+	switch {
+	case statErr == nil && fi.IsDir():
+		// watch the directory itself
+	case statErr == nil:
 		dir = filepath.Dir(path)
+	default:
+		dir = filepath.Dir(path)
+		if dir == "" || dir == "." {
+			dir, _ = filepath.Abs(".")
+		}
 	}
 	if err := watcher.Add(dir); err != nil {
-		return err
+		return fmt.Errorf("cannot watch %q: %v", dir, err)
 	}
 
 	logf("watching %s (venv: %s) — syncing imports on change. Ctrl+C to stop.", dir, opts.Venv)
-	if err := m.syncImports(path, opts.Venv, logf); err != nil {
-		logf("initial sync error: %v", err)
+	// Skip initial sync if the target file doesn't exist yet; the first
+	// file-create event will trigger a sync.
+	if statErr == nil {
+		if err := m.syncImports(path, opts.Venv, logf); err != nil {
+			logf("initial sync error: %v", err)
+		}
 	}
 
 	var timer *time.Timer
