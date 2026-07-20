@@ -4,3 +4,6 @@ bin/
 .vscode/
 *.test
 *.out
+.DS_Store
+vm-*
+/venv-manager
