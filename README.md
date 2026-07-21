@@ -4,6 +4,7 @@
 [![Go Reference](https://pkg.go.dev/badge/github.com/jacopobonomi/venv-manager.svg)](https://pkg.go.dev/github.com/jacopobonomi/venv-manager)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Release](https://img.shields.io/github/v/release/jacopobonomi/venv_manager)](https://github.com/jacopobonomi/venv_manager/releases)
+[![jacopobonomi/venv-manager MCP server](https://glama.ai/mcp/servers/jacopobonomi/venv_manager/badges/score.svg)](https://glama.ai/mcp/servers/jacopobonomi/venv_manager)
 
 A Python virtual-environment runtime for humans **and** AI agents.
 
