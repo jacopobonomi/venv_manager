@@ -10,10 +10,10 @@ import (
 
 func TestSanitizeLabel(t *testing.T) {
 	cases := map[string]string{
-		"hello world":    "hello-world",
-		"pre-upgrade":    "pre-upgrade",
-		"bad/chars!":     "bad-chars-",
-		"":               "",
+		"hello world": "hello-world",
+		"pre-upgrade": "pre-upgrade",
+		"bad/chars!":  "bad-chars-",
+		"":            "",
 	}
 	for in, want := range cases {
 		if got := sanitizeLabel(in); got != want {

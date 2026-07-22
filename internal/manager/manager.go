@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"sort"
 	"strings"
@@ -63,12 +64,39 @@ func (m *Manager) UsingUv() bool         { return m.useUv }
 // VenvPath returns the absolute path to a named venv.
 func (m *Manager) VenvPath(name string) string { return filepath.Join(m.baseDir, name) }
 
+// validNameRe restricts venv names to a safe charset: no path separators, no
+// shell metacharacters, nothing that can escape baseDir once joined.
+var validNameRe = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]*$`)
+
+// ValidateName rejects venv names that are empty, reserved, or could resolve
+// outside the base directory (e.g. "..", "../x", absolute paths). Every
+// operation that touches the filesystem by name must pass through this —
+// especially MCP tool calls, whose arguments come from an LLM.
+func ValidateName(name string) error {
+	if name == "" {
+		return fmt.Errorf("venv name is required")
+	}
+	if !validNameRe.MatchString(name) || name == "." || name == ".." {
+		return fmt.Errorf("invalid venv name %q: only letters, digits, '.', '_' and '-' are allowed", name)
+	}
+	return nil
+}
+
 func (m *Manager) requireVenv(name string) (string, error) {
+	if err := ValidateName(name); err != nil {
+		return "", err
+	}
 	p := m.VenvPath(name)
 	if !m.fs.Exists(p) {
 		return "", fmt.Errorf("venv '%s' does not exist", name)
 	}
 	return p, nil
+}
+
+// EnsureVenv validates the name and returns the venv path, erroring when the
+// venv does not exist. Exported for callers outside the package (MCP layer).
+func (m *Manager) EnsureVenv(name string) (string, error) {
+	return m.requireVenv(name)
 }
 
 // resolveTargets returns venv absolute paths for a single name, or all when global.
@@ -96,6 +124,9 @@ func (m *Manager) resolveTargets(name string) ([]string, error) {
 
 // Create makes a new venv. Uses uv when enabled+available, else python -m venv.
 func (m *Manager) Create(name, pythonVersion string) error {
+	if err := ValidateName(name); err != nil {
+		return err
+	}
 	venvPath := m.VenvPath(name)
 	if m.fs.Exists(venvPath) {
 		return fmt.Errorf("'%s' already exists", name)
@@ -158,6 +189,9 @@ func (m *Manager) Rename(oldName, newName string) error {
 	if err != nil {
 		return err
 	}
+	if err := ValidateName(newName); err != nil {
+		return err
+	}
 	dst := m.VenvPath(newName)
 	if m.fs.Exists(dst) {
 		return fmt.Errorf("target venv '%s' already exists", newName)
@@ -211,12 +245,17 @@ func (m *Manager) Clone(source, target string) error {
 
 	pipPath := utils.PipPath(targetPath)
 	if runtime.GOOS == "windows" {
-		tempFile := filepath.Join(os.TempDir(), "requirements.txt")
-		if err := os.WriteFile(tempFile, requirements, 0o644); err != nil {
+		tmp, err := os.CreateTemp("", "venv-clone-req-*.txt")
+		if err != nil {
 			return err
 		}
-		defer os.Remove(tempFile)
-		if output, err := exec.Command(pipPath, "install", "-r", tempFile).CombinedOutput(); err != nil {
+		defer os.Remove(tmp.Name())
+		if _, err := tmp.Write(requirements); err != nil {
+			tmp.Close()
+			return err
+		}
+		tmp.Close()
+		if output, err := exec.Command(pipPath, "install", "-r", tmp.Name()).CombinedOutput(); err != nil {
 			return fmt.Errorf("failed to install requirements: %v\n%s", err, output)
 		}
 		return nil
@@ -398,9 +437,9 @@ func (m *Manager) Run(name string, argv []string) error {
 	env = append(env, "VIRTUAL_ENV="+venvPath)
 	sep := string(os.PathListSeparator)
 	newPath := binDir + sep + os.Getenv("PATH")
-	env = setEnv(env, "PATH", newPath)
+	env = utils.SetEnv(env, "PATH", newPath)
 	// Drop PYTHONHOME as venv activate does.
-	env = removeEnv(env, "PYTHONHOME")
+	env = utils.RemoveEnv(env, "PYTHONHOME")
 	cmd.Env = env
 	return cmd.Run()
 }
@@ -514,26 +553,4 @@ func (m *Manager) Doctor() *DoctorReport {
 func uvAvailable() bool {
 	_, err := exec.LookPath("uv")
 	return err == nil
-}
-
-func setEnv(env []string, key, value string) []string {
-	prefix := key + "="
-	for i, e := range env {
-		if strings.HasPrefix(e, prefix) {
-			env[i] = prefix + value
-			return env
-		}
-	}
-	return append(env, prefix+value)
-}
-
-func removeEnv(env []string, key string) []string {
-	prefix := key + "="
-	out := env[:0]
-	for _, e := range env {
-		if !strings.HasPrefix(e, prefix) {
-			out = append(out, e)
-		}
-	}
-	return out
 }

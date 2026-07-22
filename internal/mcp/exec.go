@@ -2,20 +2,21 @@ package mcp
 
 import (
 	"bytes"
+	"crypto/rand"
+	"encoding/hex"
 	"fmt"
 	"os"
 	"os/exec"
 
-	"github.com/jacopobonomi/venv-manager/internal/manager"
 	"github.com/jacopobonomi/venv-manager/internal/utils"
 )
 
 // installPackages installs a set of packages into an existing venv and
 // returns pip's combined output.
 func (s *Server) installPackages(name string, packages []string) (string, error) {
-	venvPath := s.mgr.VenvPath(name)
-	if _, err := os.Stat(venvPath); err != nil {
-		return "", fmt.Errorf("venv %q does not exist", name)
+	venvPath, err := s.mgr.EnsureVenv(name)
+	if err != nil {
+		return "", err
 	}
 	args := append([]string{"install"}, packages...)
 	out, err := exec.Command(utils.PipPath(venvPath), args...).CombinedOutput()
@@ -27,12 +28,12 @@ func (s *Server) installPackages(name string, packages []string) (string, error)
 
 // runInVenv runs a command inside a venv and captures its combined output.
 func (s *Server) runInVenv(name string, argv []string) (string, error) {
-	if name == "" || len(argv) == 0 {
+	if len(argv) == 0 {
 		return "", fmt.Errorf("name and command are required")
 	}
-	venvPath := s.mgr.VenvPath(name)
-	if _, err := os.Stat(venvPath); err != nil {
-		return "", fmt.Errorf("venv %q does not exist", name)
+	venvPath, err := s.mgr.EnsureVenv(name)
+	if err != nil {
+		return "", err
 	}
 	binDir := utils.VenvBinDir(venvPath)
 	resolved := utils.VenvExe(venvPath, argv[0])
@@ -46,8 +47,8 @@ func (s *Server) runInVenv(name string, argv []string) (string, error) {
 	cmd := exec.Command(resolved, argv[1:]...)
 	env := append(os.Environ(), "VIRTUAL_ENV="+venvPath)
 	sep := string(os.PathListSeparator)
-	env = setEnv(env, "PATH", binDir+sep+os.Getenv("PATH"))
-	env = removeEnv(env, "PYTHONHOME")
+	env = utils.SetEnv(env, "PATH", binDir+sep+os.Getenv("PATH"))
+	env = utils.RemoveEnv(env, "PYTHONHOME")
 	cmd.Env = env
 	var out bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &out, &out
@@ -57,22 +58,23 @@ func (s *Server) runInVenv(name string, argv []string) (string, error) {
 	return out.String(), nil
 }
 
-// execEphemeral runs the tools/call variant: capture output rather than
-// inherit stdio (which the CLI variant does).
+// execEphemeral is the tools/call variant of `venv-manager exec`: it captures
+// output rather than inheriting stdio.
 func (s *Server) execEphemeral(packages []string, pythonVersion string, argv []string, sandbox bool) (string, error) {
 	if len(argv) == 0 {
 		return "", fmt.Errorf("command is required")
 	}
-	// Delegate creation/install by borrowing manager.Exec logic — but we
-	// need captured output. We roll a small variant here.
-	var buf bytes.Buffer
-	stdinR, stdinW, _ := os.Pipe()
-	stdinW.Close()
-	defer stdinR.Close()
+	if sandbox {
+		// Sandboxed execution inherits stdio in manager.Exec; capturing it
+		// here would require duplicating the sandbox wiring. Not supported yet.
+		return "", fmt.Errorf("sandbox mode over MCP not yet supported; use CLI `venv-manager exec --sandbox`")
+	}
 
-	// We reuse manager.Exec by redirecting stdio through a pipe. Simpler:
-	// use temporary files. Here we just reuse os/exec directly:
-	tmpName := fmt.Sprintf("mcp-eph-%d", os.Getpid())
+	buf := make([]byte, 6)
+	if _, err := rand.Read(buf); err != nil {
+		return "", err
+	}
+	tmpName := "mcp-eph-" + hex.EncodeToString(buf)
 	if err := s.mgr.Create(tmpName, pythonVersion); err != nil {
 		return "", err
 	}
@@ -80,45 +82,9 @@ func (s *Server) execEphemeral(packages []string, pythonVersion string, argv []s
 		_ = s.mgr.Remove(tmpName)
 	}()
 	if len(packages) > 0 {
-		if _, err := s.installPackages(tmpName, packages); err != nil {
-			return buf.String(), err
+		if out, err := s.installPackages(tmpName, packages); err != nil {
+			return out, err
 		}
 	}
-	if sandbox {
-		// Sandboxed exec uses the manager helper; we can't easily capture
-		// output while also sandboxing without duplication, so we accept a
-		// simpler path: run via manager.Exec with Keep=true, then read logs
-		// isn't feasible. Report the constraint.
-		return "", fmt.Errorf("sandbox mode over MCP not yet supported; use CLI `venv-manager exec --sandbox`")
-	}
-	out, err := s.runInVenv(tmpName, argv)
-	if err != nil {
-		return out, err
-	}
-	return out, nil
+	return s.runInVenv(tmpName, argv)
 }
-
-func setEnv(env []string, key, value string) []string {
-	prefix := key + "="
-	for i, e := range env {
-		if len(e) > len(prefix) && e[:len(prefix)] == prefix {
-			env[i] = prefix + value
-			return env
-		}
-	}
-	return append(env, prefix+value)
-}
-
-func removeEnv(env []string, key string) []string {
-	prefix := key + "="
-	out := env[:0]
-	for _, e := range env {
-		if len(e) < len(prefix) || e[:len(prefix)] != prefix {
-			out = append(out, e)
-		}
-	}
-	return out
-}
-
-// suppress unused import warning across build tags
-var _ = manager.Options{}

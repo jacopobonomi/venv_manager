@@ -64,6 +64,58 @@ func TestRemoveOK(t *testing.T) {
 	}
 }
 
+func TestValidateName(t *testing.T) {
+	valid := []string{"foo", "my-env", "py3.12", "eph-a1b2c3", "A_b.C-1"}
+	for _, n := range valid {
+		if err := ValidateName(n); err != nil {
+			t.Errorf("ValidateName(%q) unexpected error: %v", n, err)
+		}
+	}
+	invalid := []string{"", ".", "..", "../x", "a/b", `a\b`, "/etc", "..foo/../..", ".hidden", "-flag", "a b"}
+	for _, n := range invalid {
+		if err := ValidateName(n); err == nil {
+			t.Errorf("ValidateName(%q) expected error, got nil", n)
+		}
+	}
+}
+
+func TestRemoveRejectsEmptyName(t *testing.T) {
+	// Regression: Remove("") used to resolve to baseDir itself and would
+	// RemoveAll every venv. It must error out instead.
+	m, dir := newTestMgr(t)
+	os.MkdirAll(filepath.Join(dir, "keep"), 0o755)
+	if err := m.Remove(""); err == nil {
+		t.Fatal("Remove(\"\") must fail")
+	}
+	if _, err := os.Stat(filepath.Join(dir, "keep")); err != nil {
+		t.Fatalf("baseDir contents were touched: %v", err)
+	}
+}
+
+func TestRemoveRejectsTraversal(t *testing.T) {
+	m, dir := newTestMgr(t)
+	outside := filepath.Join(filepath.Dir(dir), "outside-victim")
+	if err := os.MkdirAll(outside, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.Remove("../" + filepath.Base(outside)); err == nil {
+		t.Fatal("traversal name must fail")
+	}
+	if _, err := os.Stat(outside); err != nil {
+		t.Fatalf("directory outside baseDir was removed: %v", err)
+	}
+}
+
+func TestCreateRejectsInvalidName(t *testing.T) {
+	m, _ := newTestMgr(t)
+	if err := m.Create("../evil", ""); err == nil {
+		t.Fatal("Create with traversal name must fail")
+	}
+	if err := m.Create("", ""); err == nil {
+		t.Fatal("Create with empty name must fail")
+	}
+}
+
 func TestVenvPath(t *testing.T) {
 	m, dir := newTestMgr(t)
 	if got, want := m.VenvPath("foo"), filepath.Join(dir, "foo"); got != want {

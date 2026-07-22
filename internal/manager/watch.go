@@ -55,7 +55,7 @@ func (m *Manager) Watch(path string, opts WatchOptions) error {
 	fi, statErr := statOrErr(path)
 	switch {
 	case statErr == nil && fi.IsDir():
-		// watch the directory itself
+		// watch the directory tree itself
 	case statErr == nil:
 		dir = filepath.Dir(path)
 	default:
@@ -64,7 +64,9 @@ func (m *Manager) Watch(path string, opts WatchOptions) error {
 			dir, _ = filepath.Abs(".")
 		}
 	}
-	if err := watcher.Add(dir); err != nil {
+	// fsnotify is not recursive: register every subdirectory explicitly, and
+	// keep registering new ones as they appear (Create events below).
+	if err := addWatchTree(watcher, dir); err != nil {
 		return fmt.Errorf("cannot watch %q: %v", dir, err)
 	}
 
@@ -83,6 +85,16 @@ func (m *Manager) Watch(path string, opts WatchOptions) error {
 		case ev, ok := <-watcher.Events:
 			if !ok {
 				return nil
+			}
+			if ev.Op&fsnotify.Create != 0 {
+				if fi, err := osStat(ev.Name); err == nil && fi.IsDir() {
+					if !skipWatchDir(filepath.Base(ev.Name)) {
+						if err := addWatchTree(watcher, ev.Name); err != nil {
+							logf("cannot watch new dir %q: %v", ev.Name, err)
+						}
+					}
+					continue
+				}
 			}
 			if !strings.HasSuffix(ev.Name, ".py") {
 				continue
@@ -131,4 +143,33 @@ func (m *Manager) syncImports(path, venv string, logf func(string, ...any)) erro
 
 func statOrErr(path string) (fileInfo, error) {
 	return osStat(path)
+}
+
+// skipWatchDir mirrors the directories Scan already ignores.
+func skipWatchDir(name string) bool {
+	switch name {
+	case ".venv", "venv", ".git", "__pycache__", "node_modules", "site-packages":
+		return true
+	}
+	return false
+}
+
+// addWatchTree registers dir and all its non-ignored subdirectories.
+func addWatchTree(w *fsnotify.Watcher, dir string) error {
+	return filepath.Walk(dir, func(p string, fi fileInfo, err error) error {
+		if err != nil {
+			// The root must be watchable; children that vanish mid-walk are fine.
+			if p == dir {
+				return err
+			}
+			return nil
+		}
+		if !fi.IsDir() {
+			return nil
+		}
+		if p != dir && skipWatchDir(fi.Name()) {
+			return filepath.SkipDir
+		}
+		return w.Add(p)
+	})
 }

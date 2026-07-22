@@ -53,9 +53,9 @@ import fake_from_docstring
 
 func TestPackageForImport(t *testing.T) {
 	cases := map[string]string{
-		"cv2":     "opencv-python",
-		"sklearn": "scikit-learn",
-		"PIL":     "Pillow",
+		"cv2":      "opencv-python",
+		"sklearn":  "scikit-learn",
+		"PIL":      "Pillow",
 		"requests": "requests",
 	}
 	for in, want := range cases {
@@ -106,5 +106,20 @@ func TestScanSkipsVendoredDirs(t *testing.T) {
 	}
 	if len(rep.Imports) != 1 || rep.Imports[0] != "good" {
 		t.Fatalf("expected [good], got %v", rep.Imports)
+	}
+}
+
+func TestNormalizePkgName(t *testing.T) {
+	cases := map[string]string{
+		"typing_extensions": "typing-extensions",
+		"Typing-Extensions": "typing-extensions",
+		"zope.interface":    "zope-interface",
+		"a__b--c..d":        "a-b-c-d",
+		"PyYAML":            "pyyaml",
+	}
+	for in, want := range cases {
+		if got := normalizePkgName(in); got != want {
+			t.Errorf("normalizePkgName(%q)=%q want %q", in, got, want)
+		}
 	}
 }

@@ -419,7 +419,7 @@ func configCmd() *cobra.Command {
 	cmd.AddCommand(&cobra.Command{
 		Use:   "path",
 		Short: "Print the config file path",
-		Run: func(_ *cobra.Command, _ []string) { fmt.Println(config.Path()) },
+		Run:   func(_ *cobra.Command, _ []string) { fmt.Println(config.Path()) },
 	})
 	cmd.AddCommand(&cobra.Command{
 		Use:   "init",

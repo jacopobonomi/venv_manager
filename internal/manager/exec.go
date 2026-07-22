@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"runtime"
 	"strings"
 
@@ -77,8 +76,8 @@ func (m *Manager) Exec(opts ExecOptions, argv []string) error {
 		"VIRTUAL_ENV="+venvPath,
 	)
 	sep := string(os.PathListSeparator)
-	env = setEnv(env, "PATH", binDir+sep+os.Getenv("PATH"))
-	env = removeEnv(env, "PYTHONHOME")
+	env = utils.SetEnv(env, "PATH", binDir+sep+os.Getenv("PATH"))
+	env = utils.RemoveEnv(env, "PYTHONHOME")
 
 	var cmd *exec.Cmd
 	if opts.Sandbox {
@@ -107,6 +106,10 @@ func sandboxWrap(venvPath string) (string, []string, error) {
 		if _, err := exec.LookPath("sandbox-exec"); err != nil {
 			return "", nil, fmt.Errorf("sandbox-exec not found (macOS)")
 		}
+		// Escape the path before splicing it into the SBPL profile: a quote
+		// or backslash in the venv path would otherwise break out of the
+		// (subpath "...") string literal.
+		escaped := strings.NewReplacer(`\`, `\\`, `"`, `\"`).Replace(venvPath)
 		profile := strings.TrimSpace(`
 (version 1)
 (deny default)
@@ -114,7 +117,7 @@ func sandboxWrap(venvPath string) (string, []string, error) {
 (allow signal)
 (allow sysctl-read)
 (allow file-read*)
-(allow file-write* (subpath "/tmp") (subpath "/private/tmp") (subpath "/private/var/folders") (subpath "` + venvPath + `"))
+(allow file-write* (subpath "/tmp") (subpath "/private/tmp") (subpath "/private/var/folders") (subpath "` + escaped + `"))
 (allow mach-lookup)
 (allow ipc-posix-shm)
 `)
@@ -139,6 +142,3 @@ func sandboxWrap(venvPath string) (string, []string, error) {
 		return "", nil, fmt.Errorf("sandbox mode not supported on %s", runtime.GOOS)
 	}
 }
-
-// suppress unused-import warning on some platforms
-var _ = filepath.Join

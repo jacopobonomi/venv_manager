@@ -44,21 +44,29 @@ var stdlibModules = map[string]bool{
 
 // importAliases maps import names that differ from their pip package name.
 var importAliases = map[string]string{
-	"cv2":         "opencv-python",
-	"sklearn":     "scikit-learn",
-	"PIL":         "Pillow",
-	"skimage":     "scikit-image",
-	"yaml":        "PyYAML",
-	"bs4":         "beautifulsoup4",
-	"dateutil":    "python-dateutil",
-	"dotenv":      "python-dotenv",
-	"magic":       "python-magic",
-	"jose":        "python-jose",
-	"jwt":         "PyJWT",
-	"attr":        "attrs",
-	"OpenSSL":     "pyOpenSSL",
-	"cryptography": "cryptography",
-	"google":      "google-cloud-core",
+	"cv2":      "opencv-python",
+	"sklearn":  "scikit-learn",
+	"PIL":      "Pillow",
+	"skimage":  "scikit-image",
+	"yaml":     "PyYAML",
+	"bs4":      "beautifulsoup4",
+	"dateutil": "python-dateutil",
+	"dotenv":   "python-dotenv",
+	"magic":    "python-magic",
+	"jose":     "python-jose",
+	"jwt":      "PyJWT",
+	"attr":     "attrs",
+	"OpenSSL":  "pyOpenSSL",
+	"google":   "google-cloud-core",
+}
+
+// pep503SepRe collapses runs of '-', '_' and '.' as per PEP 503.
+var pep503SepRe = regexp.MustCompile(`[-_.]+`)
+
+// normalizePkgName applies PEP 503 normalization so that names like
+// "typing_extensions" and "Typing-Extensions" compare equal.
+func normalizePkgName(name string) string {
+	return strings.ToLower(pep503SepRe.ReplaceAllString(name, "-"))
 }
 
 // PackageForImport returns the pip package name for a given import module.
@@ -79,11 +87,11 @@ var (
 type ScanReport struct {
 	Path              string   `json:"path"`
 	Files             []string `json:"files"`
-	Imports           []string `json:"imports"`             // top-level module names, deduped
-	ThirdParty        []string `json:"third_party"`         // excluding stdlib
-	SuggestedPackages []string `json:"suggested_packages"`  // pip names (with alias resolution)
+	Imports           []string `json:"imports"`            // top-level module names, deduped
+	ThirdParty        []string `json:"third_party"`        // excluding stdlib
+	SuggestedPackages []string `json:"suggested_packages"` // pip names (with alias resolution)
 	Venv              string   `json:"venv,omitempty"`
-	Missing           []string `json:"missing,omitempty"`   // packages not installed in the given venv
+	Missing           []string `json:"missing,omitempty"` // packages not installed in the given venv
 }
 
 // Scan walks a file or directory tree, extracts top-level Python imports, and
@@ -155,10 +163,10 @@ func (m *Manager) Scan(path, venv string) (*ScanReport, error) {
 		installedSet := map[string]bool{}
 		for _, spec := range installed {
 			name := strings.SplitN(spec, "==", 2)[0]
-			installedSet[strings.ToLower(name)] = true
+			installedSet[normalizePkgName(name)] = true
 		}
 		for _, pkg := range suggested {
-			if !installedSet[strings.ToLower(pkg)] {
+			if !installedSet[normalizePkgName(pkg)] {
 				rep.Missing = append(rep.Missing, pkg)
 			}
 		}
