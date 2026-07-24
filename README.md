@@ -29,18 +29,26 @@ Two failure modes drove this tool:
 
 ## Install
 
+**Homebrew** (macOS, Linux):
+
+```bash
+brew install jacopobonomi/tap/venv-manager
+```
+
+**One-line install script** (macOS, Linux):
+
 ```bash
 curl -sSL https://raw.githubusercontent.com/jacopobonomi/venv_manager/main/install.sh | bash
 ```
 
-Or from source:
+**From source:**
 
 ```bash
 git clone https://github.com/jacopobonomi/venv_manager && cd venv_manager
 make install
 ```
 
-Requires Go 1.21+ to build, Python 3.x at runtime.
+Requires Go 1.24+ to build, Python 3.x at runtime.
 
 ---
 
