@@ -1,6 +1,7 @@
 package mcp
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -76,5 +77,72 @@ func TestToolCatalogSchemasWellFormed(t *testing.T) {
 		if tool.InputSchema["type"] != "object" {
 			t.Errorf("%s: inputSchema.type must be object", tool.Name)
 		}
+	}
+}
+
+func TestDispatchListVenvs(t *testing.T) {
+	s, _ := newTestServer(t)
+	out, err := s.dispatch("list_venvs", nil)
+	if err != nil {
+		t.Fatalf("list_venvs: %v", err)
+	}
+	// empty list serialises as either "[]" or "null" in Go JSON
+	if !strings.Contains(out, "[") && out != "null" {
+		t.Fatalf("expected JSON array or null, got %s", out)
+	}
+}
+
+func TestDispatchDoctor(t *testing.T) {
+	s, _ := newTestServer(t)
+	out, err := s.dispatch("doctor", nil)
+	if err != nil {
+		t.Fatalf("doctor: %v", err)
+	}
+	if !strings.Contains(out, "base_dir") {
+		t.Fatalf("expected base_dir in doctor output, got %s", out)
+	}
+}
+
+func TestDispatchScanImports(t *testing.T) {
+	s, dir := newTestServer(t)
+	pyfile := filepath.Join(dir, "app.py")
+	os.WriteFile(pyfile, []byte("import requests\nimport os\n"), 0o644)
+	out, err := s.dispatch("scan_imports", map[string]any{"path": pyfile})
+	if err != nil {
+		t.Fatalf("scan_imports: %v", err)
+	}
+	if !strings.Contains(out, "requests") {
+		t.Fatalf("expected requests in output, got %s", out)
+	}
+}
+
+func TestDispatchListSnapshots_missingVenv(t *testing.T) {
+	s, _ := newTestServer(t)
+	if _, err := s.dispatch("list_snapshots", map[string]any{"name": "nope"}); err == nil {
+		t.Fatal("expected error for missing venv")
+	}
+}
+
+func TestDispatchRollback_missingVenv(t *testing.T) {
+	s, _ := newTestServer(t)
+	if _, err := s.dispatch("rollback_venv", map[string]any{"name": "nope"}); err == nil {
+		t.Fatal("expected error for missing venv")
+	}
+}
+
+func TestDispatchCreateRequiresName(t *testing.T) {
+	s, _ := newTestServer(t)
+	if _, err := s.dispatch("create_venv", map[string]any{}); err == nil {
+		t.Fatal("create_venv without name must fail")
+	}
+}
+
+func TestWriteErr(t *testing.T) {
+	dir := t.TempDir()
+	buf := &strings.Builder{}
+	s := &Server{mgr: manager.New(dir), out: buf, log: &strings.Builder{}}
+	s.writeErr(json.RawMessage(`1`), -32601, "not found")
+	if !strings.Contains(buf.String(), "-32601") {
+		t.Fatalf("expected error code in output, got %s", buf)
 	}
 }

@@ -243,6 +243,17 @@ func toolCatalog() []toolDef {
 			},
 		},
 		{
+			Name:        "why",
+			Description: "Explain why a package is installed in a venv by tracing the dependency chain. Returns the chain of packages that require it.",
+			InputSchema: map[string]any{
+				"type": "object", "required": []string{"name", "package"},
+				"properties": map[string]any{
+					"name":    strProp("venv name"),
+					"package": strProp("pip package name to inspect (e.g. 'numpy')"),
+				},
+			},
+		},
+		{
 			Name:        "scan_imports",
 			Description: "Parse Python file(s) and return third-party imports plus (optionally) which are missing in a venv. Use this before running AI-generated code to know what to install.",
 			InputSchema: map[string]any{
@@ -380,6 +391,13 @@ func (s *Server) dispatch(name string, args map[string]any) (string, error) {
 			return "", err
 		}
 		return toJSON(snap), nil
+
+	case "why":
+		result, err := s.mgr.Why(str(args, "name"), str(args, "package"))
+		if err != nil {
+			return "", err
+		}
+		return toJSON(result), nil
 
 	case "scan_imports":
 		rep, err := s.mgr.Scan(str(args, "path"), str(args, "venv"))

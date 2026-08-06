@@ -56,7 +56,7 @@ func init() {
 		runCmd(), doctorCmd(), pruneCmd(), exportCmd(), importCmd(),
 		configCmd(), tuiCmd(), describeCmd(), execCmd(), mcpCmd(),
 		snapshotCmd(), snapshotsCmd(), rollbackCmd(), scanCmd(), watchCmd(),
-		completionCmd(),
+		whyCmd(), completionCmd(),
 	)
 }
 
@@ -399,6 +399,51 @@ func importCmd() *cobra.Command {
 				die(err)
 			}
 			fmt.Printf("%s📥 Imported venv '%s'%s\n", colorGreen, mf.Name, colorReset)
+		},
+	}
+}
+
+func whyCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "why <venv> <package>",
+		Short: "Explain why a package is installed (dependency chain)",
+		Args:  cobra.ExactArgs(2),
+		Run: func(_ *cobra.Command, args []string) {
+			result, err := mgr.Why(args[0], args[1])
+			if err != nil {
+				die(err)
+			}
+			if jsonFlag {
+				printJSON(result)
+				return
+			}
+			if result.Direct {
+				fmt.Printf("%s%s%s is a direct dependency — nothing else requires it.\n",
+					colorGreen, result.Package, colorReset)
+				return
+			}
+			chain := make([]string, len(result.RequiredBy))
+			copy(chain, result.RequiredBy)
+			// reverse so it reads top-down: "A requires B requires C requires <pkg>"
+			for i, j := 0, len(chain)-1; i < j; i, j = i+1, j-1 {
+				chain[i], chain[j] = chain[j], chain[i]
+			}
+			chain = append(chain, result.Package)
+			fmt.Printf("%s📦 Why is %s installed in '%s'?%s\n",
+				colorYellow, result.Package, args[0], colorReset)
+			for i, pkg := range chain {
+				indent := ""
+				for j := 0; j < i; j++ {
+					indent += "  "
+				}
+				if i == 0 {
+					fmt.Printf("%s%s (top-level)\n", indent, pkg)
+				} else if i == len(chain)-1 {
+					fmt.Printf("%s└─ %s%s%s (target)\n", indent, colorGreen, pkg, colorReset)
+				} else {
+					fmt.Printf("%s└─ %s requires...\n", indent, pkg)
+				}
+			}
 		},
 	}
 }
