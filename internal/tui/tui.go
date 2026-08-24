@@ -114,14 +114,16 @@ func (m Model) Init() tea.Cmd {
 
 func (m Model) refreshCmd() tea.Cmd {
 	return func() tea.Msg {
-		m.mgr.SetGlobal(true)
 		names, err := m.mgr.List()
 		if err != nil {
 			return refreshedMsg{err: err}
 		}
-		sizes, _ := m.mgr.GetSize("")
 		items := make([]list.Item, 0, len(names))
 		for _, n := range names {
+			sizes, sizeErr := m.mgr.GetSize(n)
+			if sizeErr != nil {
+				return refreshedMsg{err: sizeErr}
+			}
 			items = append(items, venvItem{name: n, size: sizes[n]})
 		}
 		return refreshedMsg{items: items}

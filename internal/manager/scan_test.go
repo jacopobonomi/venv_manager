@@ -109,6 +109,27 @@ func TestScanSkipsVendoredDirs(t *testing.T) {
 	}
 }
 
+func TestScanExcludesLocalModulesAndPackages(t *testing.T) {
+	m, _ := newTestMgr(t)
+	dir := t.TempDir()
+	os.WriteFile(filepath.Join(dir, "app.py"), []byte("import helper\nimport localpkg\nimport requests\n"), 0o644)
+	os.WriteFile(filepath.Join(dir, "helper.py"), []byte(""), 0o644)
+	os.MkdirAll(filepath.Join(dir, "localpkg"), 0o755)
+	os.WriteFile(filepath.Join(dir, "localpkg", "__init__.py"), []byte(""), 0o644)
+
+	rep, err := m.Scan(filepath.Join(dir, "app.py"), "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := strings.Join(rep.SuggestedPackages, ",")
+	if strings.Contains(got, "helper") || strings.Contains(got, "localpkg") {
+		t.Fatalf("local imports leaked into package suggestions: %v", rep.SuggestedPackages)
+	}
+	if !strings.Contains(got, "requests") {
+		t.Fatalf("third-party import missing: %v", rep.SuggestedPackages)
+	}
+}
+
 func TestNormalizePkgName(t *testing.T) {
 	cases := map[string]string{
 		"typing_extensions": "typing-extensions",

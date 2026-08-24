@@ -1,7 +1,14 @@
-.PHONY: build test install lint clean demo
+.PHONY: build test coverage install lint clean demo
 
 build:
 	go build -o bin/venv-manager cmd/venv-manager/main.go
+
+test:
+	go test -race -count=1 ./...
+
+coverage:
+	go test -coverprofile=coverage.out ./...
+	go tool cover -func=coverage.out
 
 install:
 	./scripts/install.sh

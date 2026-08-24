@@ -80,6 +80,7 @@ func (m *Manager) Watch(path string, opts WatchOptions) error {
 	}
 
 	var timer *time.Timer
+	var timerC <-chan time.Time
 	for {
 		select {
 		case ev, ok := <-watcher.Events:
@@ -103,13 +104,22 @@ func (m *Manager) Watch(path string, opts WatchOptions) error {
 				continue
 			}
 			if timer != nil {
-				timer.Stop()
-			}
-			timer = time.AfterFunc(opts.Debounce, func() {
-				if err := m.syncImports(path, opts.Venv, logf); err != nil {
-					logf("sync error: %v", err)
+				if !timer.Stop() {
+					select {
+					case <-timer.C:
+					default:
+					}
 				}
-			})
+				timer.Reset(opts.Debounce)
+			} else {
+				timer = time.NewTimer(opts.Debounce)
+			}
+			timerC = timer.C
+		case <-timerC:
+			timerC = nil
+			if err := m.syncImports(path, opts.Venv, logf); err != nil {
+				logf("sync error: %v", err)
+			}
 		case err, ok := <-watcher.Errors:
 			if !ok {
 				return nil

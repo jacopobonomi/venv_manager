@@ -11,6 +11,7 @@ import (
 	"runtime"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/jacopobonomi/venv-manager/internal/utils"
@@ -23,6 +24,7 @@ type Manager struct {
 	useUv         bool
 	fs            utils.FileSystem
 	global        bool
+	registryMu    sync.Mutex
 }
 
 // Options configures Manager construction.
@@ -90,6 +92,10 @@ func (m *Manager) requireVenv(name string) (string, error) {
 	if !m.fs.Exists(p) {
 		return "", fmt.Errorf("venv '%s' does not exist", name)
 	}
+	if !m.fs.Exists(filepath.Join(p, "pyvenv.cfg")) {
+		return "", fmt.Errorf("'%s' is not a virtual environment (missing pyvenv.cfg)", name)
+	}
+	_ = m.touchRegistry(name, time.Now().UTC())
 	return p, nil
 }
 
@@ -152,6 +158,9 @@ func (m *Manager) Create(name, pythonVersion string) error {
 	if output, err := cmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("failed to create venv: %v\n%s", err, output)
 	}
+	if err := m.registerVenv(name); err != nil {
+		return fmt.Errorf("created venv but failed to update registry: %v", err)
+	}
 	return nil
 }
 
@@ -166,7 +175,7 @@ func (m *Manager) List() ([]string, error) {
 	}
 	var venvs []string
 	for _, entry := range entries {
-		if entry.IsDir() {
+		if entry.IsDir() && m.fs.Exists(filepath.Join(m.baseDir, entry.Name(), "pyvenv.cfg")) {
 			venvs = append(venvs, entry.Name())
 		}
 	}
@@ -180,7 +189,13 @@ func (m *Manager) Remove(name string) error {
 	if err != nil {
 		return err
 	}
-	return m.fs.RemoveAll(p)
+	if err := m.fs.RemoveAll(p); err != nil {
+		return err
+	}
+	if err := m.unregisterVenv(name); err != nil {
+		return fmt.Errorf("removed venv but failed to update registry: %v", err)
+	}
+	return nil
 }
 
 // Rename moves a venv to a new name.
@@ -199,10 +214,13 @@ func (m *Manager) Rename(oldName, newName string) error {
 	if err := os.Rename(src, dst); err != nil {
 		return fmt.Errorf("failed to rename venv: %v", err)
 	}
+	if err := m.renameRegistry(oldName, newName); err != nil {
+		return fmt.Errorf("renamed venv but failed to update registry: %v", err)
+	}
 	// NOTE: internal absolute paths in the venv activate scripts still reference
 	// the old path. `python -m venv` bakes them in. Fix by re-creating scripts
 	// via `python -m venv --upgrade`.
-	if out, err := exec.Command(utils.DefaultPythonCmd(""), "-m", "venv", "--upgrade", dst).CombinedOutput(); err != nil {
+	if out, err := exec.Command(utils.PythonPath(dst), "-m", "venv", "--upgrade", dst).CombinedOutput(); err != nil {
 		return fmt.Errorf("renamed but activation scripts may be broken: %v\n%s", err, out)
 	}
 	return nil
@@ -339,16 +357,30 @@ func (m *Manager) GetActivationCommand(name, shell string) (string, error) {
 	binDir := utils.VenvBinDir(venvPath)
 	switch shell {
 	case "fish":
-		return fmt.Sprintf("source %s/activate.fish", binDir), nil
+		return "source " + quoteFish(filepath.Join(binDir, "activate.fish")), nil
 	case "csh", "tcsh":
-		return fmt.Sprintf("source %s/activate.csh", binDir), nil
+		return "source " + quotePOSIX(filepath.Join(binDir, "activate.csh")), nil
 	case "cmd":
-		return fmt.Sprintf("%s\\activate.bat", binDir), nil
+		return fmt.Sprintf("call \"%s\"", filepath.Join(binDir, "activate.bat")), nil
 	case "pwsh", "powershell":
-		return fmt.Sprintf("%s\\Activate.ps1", binDir), nil
+		return ". " + quotePowerShell(filepath.Join(binDir, "Activate.ps1")), nil
 	default:
-		return fmt.Sprintf("source %s/activate", binDir), nil
+		return "source " + quotePOSIX(filepath.Join(binDir, "activate")), nil
 	}
+}
+
+func quotePOSIX(value string) string {
+	return "'" + strings.ReplaceAll(value, "'", `'"'"'`) + "'"
+}
+
+func quoteFish(value string) string {
+	value = strings.ReplaceAll(value, `\`, `\\`)
+	value = strings.ReplaceAll(value, `'`, `\'`)
+	return "'" + value + "'"
+}
+
+func quotePowerShell(value string) string {
+	return "'" + strings.ReplaceAll(value, "'", "''") + "'"
 }
 
 // ListPackages returns "name==version" strings for installed packages.
@@ -492,25 +524,36 @@ func (m *Manager) Import(mf *Manifest) error {
 
 // StaleVenv describes a venv unused for a given duration.
 type StaleVenv struct {
-	Name    string
-	ModTime time.Time
+	Name       string    `json:"name"`
+	LastUsedAt time.Time `json:"last_used_at"`
 }
 
 // FindStale lists venvs whose mtime is older than `days`.
 func (m *Manager) FindStale(days int) ([]StaleVenv, error) {
+	if days <= 0 {
+		return nil, fmt.Errorf("days must be greater than zero")
+	}
 	venvs, err := m.List()
 	if err != nil {
 		return nil, err
 	}
 	cutoff := time.Now().AddDate(0, 0, -days)
+	registry, err := m.loadRegistry()
+	if err != nil {
+		return nil, err
+	}
 	var stale []StaleVenv
 	for _, v := range venvs {
 		info, err := os.Stat(m.VenvPath(v))
 		if err != nil {
 			continue
 		}
-		if info.ModTime().Before(cutoff) {
-			stale = append(stale, StaleVenv{Name: v, ModTime: info.ModTime()})
+		lastUsed := info.ModTime()
+		if entry, ok := registry.Environments[v]; ok && !entry.LastUsedAt.IsZero() {
+			lastUsed = entry.LastUsedAt
+		}
+		if lastUsed.Before(cutoff) {
+			stale = append(stale, StaleVenv{Name: v, LastUsedAt: lastUsed})
 		}
 	}
 	return stale, nil

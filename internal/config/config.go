@@ -2,6 +2,7 @@ package config
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 )
@@ -48,6 +49,9 @@ func Load() (*Config, error) {
 	}
 	if cfg.PruneAfterDays == 0 {
 		cfg.PruneAfterDays = 90
+	}
+	if cfg.PruneAfterDays < 0 {
+		return nil, fmt.Errorf("prune_after_days must be greater than zero")
 	}
 	return cfg, nil
 }

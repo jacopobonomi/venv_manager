@@ -22,6 +22,24 @@ type Snapshot struct {
 	Path         string    `json:"path"`
 }
 
+// PackageChange describes a version or source change between two snapshots.
+type PackageChange struct {
+	Name string `json:"name"`
+	From string `json:"from"`
+	To   string `json:"to"`
+}
+
+// SnapshotDiff is the package-level difference between two saved states, or
+// between a saved state and the current environment.
+type SnapshotDiff struct {
+	Venv    string          `json:"venv"`
+	From    string          `json:"from"`
+	To      string          `json:"to"`
+	Added   []string        `json:"added"`
+	Removed []string        `json:"removed"`
+	Changed []PackageChange `json:"changed"`
+}
+
 func snapshotsDir(venvPath string) string {
 	return filepath.Join(venvPath, ".venv-manager", "snapshots")
 }
@@ -46,12 +64,12 @@ func (m *Manager) CreateSnapshot(name, label string) (*Snapshot, error) {
 	if label != "" {
 		base = id + "_" + sanitizeLabel(label)
 	}
-	fpath := filepath.Join(dir, base+".txt")
-	if err := os.WriteFile(fpath, out, 0o644); err != nil {
+	snapshotID, fpath, err := writeUniqueSnapshot(dir, base, out)
+	if err != nil {
 		return nil, err
 	}
 	return &Snapshot{
-		ID:           base,
+		ID:           snapshotID,
 		Label:        label,
 		Venv:         name,
 		CreatedAt:    now,
@@ -110,9 +128,9 @@ func (m *Manager) ListSnapshots(name string) ([]Snapshot, error) {
 	return snaps, nil
 }
 
-// Rollback restores a venv to a snapshot. If snapshotID is empty, uses the
-// most recent snapshot. Uninstalls current packages, then reinstalls from
-// snapshot file. Returns the snapshot that was restored.
+// Rollback restores a venv to a snapshot. If snapshotID is empty, it uses the
+// most recent snapshot. It installs the snapshot first, then removes packages
+// that are not part of it. Returns the snapshot that was restored.
 func (m *Manager) Rollback(name, snapshotID string) (*Snapshot, error) {
 	venvPath, err := m.requireVenv(name)
 	if err != nil {
@@ -141,25 +159,38 @@ func (m *Manager) Rollback(name, snapshotID string) (*Snapshot, error) {
 	}
 
 	pip := utils.PipPath(venvPath)
-	// Freeze current, uninstall everything, then install snapshot.
+	// Capture the current state, install the target first, then remove only
+	// packages that are absent from the snapshot. A failed install therefore
+	// does not proactively empty the environment before reporting the error.
 	cur, err := exec.Command(pip, "freeze").Output()
 	if err != nil {
 		return nil, fmt.Errorf("pip freeze failed: %v", err)
 	}
-	if len(strings.TrimSpace(string(cur))) > 0 {
+	if out, err := exec.Command(pip, "install", "-r", target.Path).CombinedOutput(); err != nil {
+		return nil, fmt.Errorf("install from snapshot failed; existing packages were not removed: %v\n%s", err, out)
+	}
+
+	targetData, err := os.ReadFile(target.Path)
+	if err != nil {
+		return nil, err
+	}
+	extras := requirementsAbsentFrom(cur, targetData)
+	if len(extras) > 0 {
 		tmp, err := os.CreateTemp("", "vm-uninstall-*.txt")
 		if err != nil {
 			return nil, err
 		}
-		tmp.Write(cur)
-		tmp.Close()
+		if _, err := tmp.WriteString(strings.Join(extras, "\n") + "\n"); err != nil {
+			tmp.Close()
+			return nil, err
+		}
+		if err := tmp.Close(); err != nil {
+			return nil, err
+		}
 		defer os.Remove(tmp.Name())
 		if out, err := exec.Command(pip, "uninstall", "-y", "-r", tmp.Name()).CombinedOutput(); err != nil {
 			return nil, fmt.Errorf("uninstall failed: %v\n%s", err, out)
 		}
-	}
-	if out, err := exec.Command(pip, "install", "-r", target.Path).CombinedOutput(); err != nil {
-		return nil, fmt.Errorf("install from snapshot failed: %v\n%s", err, out)
 	}
 	return target, nil
 }
@@ -170,11 +201,179 @@ func (m *Manager) DeleteSnapshot(name, snapshotID string) error {
 	if err != nil {
 		return err
 	}
+	if !validSnapshotID(snapshotID) {
+		return fmt.Errorf("invalid snapshot id %q", snapshotID)
+	}
 	p := filepath.Join(snapshotsDir(venvPath), snapshotID+".txt")
 	if !m.fs.Exists(p) {
 		return fmt.Errorf("snapshot %q not found", snapshotID)
 	}
 	return os.Remove(p)
+}
+
+// DiffSnapshots compares fromID with toID. An empty toID compares the saved
+// snapshot with the environment's current pip-freeze state.
+func (m *Manager) DiffSnapshots(name, fromID, toID string) (*SnapshotDiff, error) {
+	venvPath, err := m.requireVenv(name)
+	if err != nil {
+		return nil, err
+	}
+	if fromID == "" {
+		return nil, fmt.Errorf("from snapshot id is required")
+	}
+	fromData, err := m.snapshotData(name, fromID)
+	if err != nil {
+		return nil, err
+	}
+	toLabel := toID
+	var toData []byte
+	if toID == "" {
+		toLabel = "current"
+		toData, err = exec.Command(utils.PipPath(venvPath), "freeze").Output()
+		if err != nil {
+			return nil, fmt.Errorf("pip freeze failed: %v", err)
+		}
+	} else {
+		toData, err = m.snapshotData(name, toID)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	fromPackages := requirementSpecs(fromData)
+	toPackages := requirementSpecs(toData)
+	diff := &SnapshotDiff{
+		Venv:    name,
+		From:    fromID,
+		To:      toLabel,
+		Added:   []string{},
+		Removed: []string{},
+		Changed: []PackageChange{},
+	}
+	for packageName, toSpec := range toPackages {
+		fromSpec, existed := fromPackages[packageName]
+		switch {
+		case !existed:
+			diff.Added = append(diff.Added, toSpec)
+		case fromSpec != toSpec:
+			diff.Changed = append(diff.Changed, PackageChange{Name: packageName, From: fromSpec, To: toSpec})
+		}
+	}
+	for packageName, fromSpec := range fromPackages {
+		if _, exists := toPackages[packageName]; !exists {
+			diff.Removed = append(diff.Removed, fromSpec)
+		}
+	}
+	sort.Strings(diff.Added)
+	sort.Strings(diff.Removed)
+	sort.Slice(diff.Changed, func(i, j int) bool { return diff.Changed[i].Name < diff.Changed[j].Name })
+	return diff, nil
+}
+
+func (m *Manager) snapshotData(name, snapshotID string) ([]byte, error) {
+	if !validSnapshotID(snapshotID) {
+		return nil, fmt.Errorf("invalid snapshot id %q", snapshotID)
+	}
+	snapshots, err := m.ListSnapshots(name)
+	if err != nil {
+		return nil, err
+	}
+	for _, snapshot := range snapshots {
+		if snapshot.ID == snapshotID {
+			return os.ReadFile(snapshot.Path)
+		}
+	}
+	return nil, fmt.Errorf("snapshot %q not found for venv %q", snapshotID, name)
+}
+
+func requirementSpecs(data []byte) map[string]string {
+	specs := map[string]string{}
+	for _, line := range strings.Split(string(data), "\n") {
+		line = strings.TrimSpace(line)
+		if name := requirementName(line); name != "" {
+			specs[name] = line
+		}
+	}
+	return specs
+}
+
+func writeUniqueSnapshot(dir, base string, data []byte) (string, string, error) {
+	for suffix := 0; ; suffix++ {
+		id := base
+		if suffix > 0 {
+			id = fmt.Sprintf("%s-%d", base, suffix)
+		}
+		path := filepath.Join(dir, id+".txt")
+		file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
+		if os.IsExist(err) {
+			continue
+		}
+		if err != nil {
+			return "", "", err
+		}
+		if _, err := file.Write(data); err != nil {
+			file.Close()
+			os.Remove(path)
+			return "", "", err
+		}
+		if err := file.Close(); err != nil {
+			os.Remove(path)
+			return "", "", err
+		}
+		return id, path, nil
+	}
+}
+
+func validSnapshotID(id string) bool {
+	if id == "" || id == "." || id == ".." {
+		return false
+	}
+	for _, r := range id {
+		if (r < 'a' || r > 'z') && (r < 'A' || r > 'Z') && (r < '0' || r > '9') && r != '-' && r != '_' {
+			return false
+		}
+	}
+	return true
+}
+
+func requirementsAbsentFrom(current, target []byte) []string {
+	targetNames := requirementNames(target)
+	var extras []string
+	for _, line := range strings.Split(strings.TrimSpace(string(current)), "\n") {
+		name := requirementName(line)
+		if name != "" && !targetNames[name] {
+			extras = append(extras, line)
+		}
+	}
+	return extras
+}
+
+func requirementNames(data []byte) map[string]bool {
+	names := map[string]bool{}
+	for _, line := range strings.Split(string(data), "\n") {
+		if name := requirementName(line); name != "" {
+			names[name] = true
+		}
+	}
+	return names
+}
+
+func requirementName(line string) string {
+	line = strings.TrimSpace(line)
+	if line == "" || strings.HasPrefix(line, "#") || strings.HasPrefix(line, "--") {
+		return ""
+	}
+	if idx := strings.LastIndex(line, "#egg="); idx >= 0 {
+		return normalizePkgName(line[idx+5:])
+	}
+	line = strings.TrimPrefix(line, "-e ")
+	if idx := strings.Index(line, " @ "); idx >= 0 {
+		line = line[:idx]
+	}
+	if idx := strings.IndexAny(line, "=<>!~["); idx >= 0 {
+		line = line[:idx]
+	}
+	return normalizePkgName(strings.TrimSpace(line))
 }
 
 func sanitizeLabel(s string) string {

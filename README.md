@@ -6,7 +6,7 @@
 [![Release](https://img.shields.io/github/v/release/jacopobonomi/venv_manager)](https://github.com/jacopobonomi/venv_manager/releases)
 [![jacopobonomi/venv-manager MCP server](https://glama.ai/mcp/servers/jacopobonomi/venv_manager/badges/score.svg)](https://glama.ai/mcp/servers/jacopobonomi/venv_manager)
 
-A Python virtual-environment runtime for humans **and** AI agents.
+One Python environment control layer for developers **and every AI coding agent**.
 
 Written in Go. One static binary, no runtime deps beyond `python3` (or `uv`, if available).
 
@@ -18,12 +18,28 @@ The GIF above is real: `venv-manager watch app.py --venv X` monitors a file, sca
 
 ## Why
 
+Claude, Codex, Cursor and other coding agents can already run shell commands, create a `.venv`, and ask for approval before sensitive operations. What they do not share is durable Python environment state.
+
+Sandboxing protects the machine. `venv-manager` protects the **workflow**: it gives every agent the same environments, metadata, package history and recovery path, independent of the client that happens to be running.
+
 Two failure modes drove this tool:
 
 1. **Human sprawl.** Venvs multiply across `~`, cache directories eat GB, activation syntax varies by shell, and cloning "the env that worked" means copy-pasting `pip freeze` between terminals.
-2. **Agent sprawl.** LLMs generating Python routinely `pip install` into the wrong interpreter, forget to set `VIRTUAL_ENV`, leave half-installed packages behind after a crash, and have no typed API to reason about environment state — only shells.
+2. **Agent sprawl.** AI agents can install into the wrong interpreter, leave partial changes behind, and lose environment context when you switch client or start a new session.
 
-`venv-manager` solves (1) with a clean CLI and (2) with a **Model Context Protocol server**, typed **JSON snapshots**, **ephemeral venvs** with OS-level sandboxing, and a **file watcher** that keeps a venv in sync with an evolving script.
+`venv-manager` solves (1) with a clean CLI and (2) with a shared **Model Context Protocol server**, a persistent **registry**, typed **snapshots and diffs**, reversible package changes, **ephemeral venvs** with OS-level sandboxing, and a **file watcher** that keeps a venv in sync with evolving code.
+
+### What the agent sandbox does not solve
+
+| Agent capability | Shared environment control |
+|---|---|
+| Approves or blocks a shell command | Records which environment belongs to which project |
+| Restricts filesystem and network access | Preserves state across Claude, Codex and other clients |
+| Creates a venv when prompted | Tracks creation and real last-use metadata |
+| Runs `pip`, Poetry or `uv` | Shows package-level changes between snapshots |
+| Stops an unsafe action | Rolls a damaged environment back to a known state |
+
+The two layers complement each other: agent permissions control **what may happen now**; `venv-manager` records **what exists, what changed, and how to recover**.
 
 ---
 
@@ -56,7 +72,7 @@ Requires Go 1.24+ to build, Python 3.x at runtime.
 
 ### MCP server
 
-Exposes venv operations as native [Model Context Protocol](https://modelcontextprotocol.io/) tools. Agentic clients (Claude Desktop, Cursor, Zed) call typed tools with JSON Schemas instead of guessing shell invocations.
+Exposes venv operations as native [Model Context Protocol](https://modelcontextprotocol.io/) tools. Claude, Codex, Cursor, Zed and other MCP clients call the same typed tools and operate on the same persistent environment state instead of guessing shell invocations independently.
 
 Wire it up in Claude Desktop (`~/Library/Application Support/Claude/claude_desktop_config.json`):
 
@@ -65,7 +81,7 @@ Wire it up in Claude Desktop (`~/Library/Application Support/Claude/claude_deskt
   "mcpServers": {
     "venv-manager": {
       "command": "venv-manager",
-      "args": ["mcp"]
+      "args": ["mcp", "--policy", "safe"]
     }
   }
 }
@@ -84,11 +100,16 @@ Tools exposed (JSON-RPC 2.0 over stdio):
 | `exec_ephemeral` | `{packages[], python_version?, command[]}` → create-install-run-destroy in a single call. |
 | `snapshot_venv` | `{name, label?}` → capture pip freeze; enables `rollback_venv`. |
 | `list_snapshots` | `{name}` → newest-first. |
-| `rollback_venv` | `{name, snapshot_id?}` → uninstall all, reinstall from snapshot. |
+| `rollback_venv` | `{name, snapshot_id?}` → install snapshot state, then remove packages absent from it. |
+| `diff_snapshots` | `{name, from_snapshot_id, to_snapshot_id?}` → package-level diff; omit `to_snapshot_id` for current state. |
 | `scan_imports` | `{path, venv?}` → third-party imports found; when `venv` is passed, reports which are missing. |
+| `list_registry` | Persistent project, tag, creation, and last-used metadata. |
+| `set_registry_metadata` | `{name, project?, tags[]?, confirm?}` → update registry metadata. |
 | `doctor` | Python versions on `PATH`, `uv` availability, broken venvs. |
 
-Implementation: ~350 LOC, zero third-party MCP deps. Newline-delimited JSON-RPC 2.0 on stdin/stdout.
+The server defaults to `safe` policy. Installation, rollback, removal, and arbitrary execution require `confirm: true`. Use `--policy read-only` for inspection-only clients, `--policy full` for unrestricted compatibility, and repeat `--allow-tool NAME` to expose only an explicit subset. These policies are defense in depth: they remain consistent even when different clients have different approval settings.
+
+Implementation uses zero third-party MCP dependencies. Newline-delimited JSON-RPC 2.0 on stdin/stdout.
 
 ### Ephemeral execution (`uvx`-style, sandboxed)
 
@@ -110,13 +131,25 @@ venv-manager watch app.py --venv myenv
 
 `fsnotify` on the parent directory (survives editor atomic-rename writes), 500 ms debounce, then:
 
-1. AST-lite regex scan of `.py` files (skips docstrings, relative imports, and vendored dirs like `.venv`, `.git`, `__pycache__`, `node_modules`)
+1. AST-lite regex scan of `.py` files (skips docstrings, relative imports, local modules/packages, and vendored dirs like `.venv`, `.git`, `__pycache__`, `node_modules`)
 2. Filter against a stdlib module set
 3. Resolve import-name → pip-package aliases (`cv2` → `opencv-python`, `sklearn` → `scikit-learn`, `PIL` → `Pillow`, `bs4` → `beautifulsoup4`, `yaml` → `PyYAML`, ...)
 4. Diff against installed packages
 5. `pip install` the delta
 
 The venv is always a superset of the current file's requirements. This is the loop the demo GIF above exercises.
+
+### Persistent registry
+
+Every environment is tracked in `~/.venvs/.venv-manager/registry.json` with creation and last-used timestamps, an optional project path, and tags. Writes are atomic and the registry reconciles itself with live venv directories.
+
+```bash
+venv-manager registry
+venv-manager registry set research --project ~/work/paper --tag data,ai
+venv-manager registry research
+```
+
+`prune` uses registry `last_used_at` rather than directory modification time when metadata is available.
 
 ### JSON snapshot as a single-call context primer
 
@@ -138,11 +171,9 @@ venv-manager describe myenv
   "modified_at": "2026-07-20T15:41:35Z",
   "freeze_hash": "sha256:2c58d830...",
   "activation": {
-    "bash": "source /Users/me/.venvs/myenv/bin/activate",
-    "zsh":  "source /Users/me/.venvs/myenv/bin/activate",
-    "fish": "source /Users/me/.venvs/myenv/bin/activate.fish",
-    "pwsh": "/Users/me/.venvs/myenv/bin\\Activate.ps1",
-    "cmd":  "/Users/me/.venvs/myenv/bin\\activate.bat"
+    "bash": "source '/Users/me/.venvs/myenv/bin/activate'",
+    "zsh":  "source '/Users/me/.venvs/myenv/bin/activate'",
+    "fish": "source '/Users/me/.venvs/myenv/bin/activate.fish'"
   }
 }
 ```
@@ -174,13 +205,16 @@ One tool call, everything an agent needs to reason about the environment. `freez
 | `watch <path> --venv N` | Auto-install missing imports on file change. |
 | `snapshot <name> [-l LABEL]` | Capture pip-freeze state. |
 | `snapshots <name> [--json]` | List snapshots (newest first). |
-| `rollback <name> [snapshot-id]` | Uninstall all, reinstall from snapshot. |
+| `rollback <name> [snapshot-id]` | Install snapshot state first, then remove packages absent from it. |
+| `snapshot-diff <name> <from> [to]` | Diff snapshots, or compare one snapshot with current state. |
 | `export <name>` | Print portable manifest (name + python version + freeze) as JSON. |
 | `import <manifest.json>` | Recreate venv from manifest. |
-| `prune [--days N] [--dry-run] [--json]` | Remove venvs unused for N days. |
+| `prune [--days N] [--dry-run] [--yes] [--json]` | Report stale venvs; require `--yes` before removal. |
+| `registry [name]` | Show persistent creation, usage, project, and tag metadata. |
+| `registry set <name> [--project PATH] [--tag TAGS]` | Update project association and tags. |
 | `doctor [--json]` | Diagnose python versions, uv, broken venvs. |
 | `config show|path|init` | Show / locate / bootstrap the config. |
-| `mcp` | Model Context Protocol server on stdio. |
+| `mcp [--policy MODE] [--allow-tool NAME]` | MCP server with read-only, safe, or full authorization policy. |
 | `tui` | Bubble Tea TUI browser. |
 | `completion [bash|zsh|fish|powershell]` | Shell completion scripts. |
 

@@ -53,3 +53,12 @@ func TestLoadDefaultPruneAfterDays(t *testing.T) {
 		t.Fatalf("expected 90, got %d", cfg.PruneAfterDays)
 	}
 }
+
+func TestLoadRejectsNegativePruneAfterDays(t *testing.T) {
+	f := filepath.Join(t.TempDir(), "negative.json")
+	os.WriteFile(f, []byte(`{"prune_after_days":-1}`), 0o644)
+	t.Setenv("VENV_MANAGER_CONFIG", f)
+	if _, err := Load(); err == nil {
+		t.Fatal("expected negative prune_after_days to be rejected")
+	}
+}

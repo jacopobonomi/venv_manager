@@ -1,0 +1,571 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="One Python environment control layer for developers and every AI coding agent. Shared registry, snapshots, rollback, MCP policies and ephemeral execution in one Go binary.">
+  <meta name="theme-color" content="#0b1220">
+  <meta property="og:title" content="venv-manager — Python environments under control">
+  <meta property="og:description" content="Shared, observable and reversible Python environments across Claude, Codex and other AI coding agents.">
+  <meta property="og:type" content="website">
+  <title>venv-manager — Python environments under control</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; }
+
+    :root {
+      --ink: #101828;
+      --muted: #596579;
+      --faint: #8993a4;
+      --paper: #f7f8f3;
+      --paper-strong: #ffffff;
+      --line: #dce1d8;
+      --navy: #0b1220;
+      --navy-soft: #121d30;
+      --lime: #c8ff5a;
+      --lime-dark: #4e7200;
+      --violet: #7657ff;
+      --cyan: #59e1ff;
+      --orange: #ff8f5a;
+      --radius: 18px;
+      --shadow: 0 28px 80px rgba(26, 36, 55, 0.14);
+      --mono: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+      --sans: Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+
+    html { scroll-behavior: smooth; }
+    body {
+      margin: 0;
+      background: var(--paper);
+      color: var(--ink);
+      font-family: var(--sans);
+      line-height: 1.55;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    a { color: inherit; }
+    button, a { -webkit-tap-highlight-color: transparent; }
+    code, pre { font-family: var(--mono); }
+    code { font-size: 0.9em; }
+    .container { width: min(1180px, calc(100% - 40px)); margin-inline: auto; }
+    .eyebrow {
+      display: inline-flex;
+      align-items: center;
+      gap: 9px;
+      margin: 0 0 18px;
+      color: var(--lime-dark);
+      font-family: var(--mono);
+      font-size: 0.74rem;
+      font-weight: 700;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+    }
+    .eyebrow::before { content: ""; width: 22px; height: 2px; background: currentColor; }
+    .section-title {
+      max-width: 760px;
+      margin: 0;
+      font-size: clamp(2rem, 4vw, 3.6rem);
+      line-height: 1.02;
+      letter-spacing: -0.055em;
+    }
+    .section-lead { max-width: 650px; margin: 22px 0 0; color: var(--muted); font-size: 1.05rem; }
+
+    .site-header {
+      position: sticky;
+      z-index: 20;
+      top: 0;
+      border-bottom: 1px solid rgba(220, 225, 216, 0.82);
+      background: rgba(247, 248, 243, 0.88);
+      backdrop-filter: blur(18px);
+    }
+    .nav { min-height: 70px; display: flex; align-items: center; justify-content: space-between; gap: 24px; }
+    .brand { display: inline-flex; align-items: center; gap: 12px; text-decoration: none; font-weight: 780; letter-spacing: -0.03em; }
+    .brand-mark {
+      display: grid;
+      width: 34px;
+      height: 34px;
+      place-items: center;
+      border-radius: 10px;
+      background: var(--navy);
+      color: var(--lime);
+      font-family: var(--mono);
+      font-size: 0.78rem;
+      box-shadow: 4px 4px 0 var(--lime);
+    }
+    .nav-links { display: flex; align-items: center; gap: 28px; }
+    .nav-links a { color: var(--muted); font-size: 0.88rem; font-weight: 650; text-decoration: none; }
+    .nav-links a:hover { color: var(--ink); }
+    .github-link { display: inline-flex; align-items: center; gap: 8px; color: var(--ink) !important; }
+
+    .hero {
+      position: relative;
+      overflow: hidden;
+      padding: 88px 0 96px;
+      border-bottom: 1px solid var(--line);
+    }
+    .hero::before {
+      content: "";
+      position: absolute;
+      width: 520px;
+      height: 520px;
+      right: -170px;
+      top: -230px;
+      border: 1px solid rgba(118, 87, 255, 0.2);
+      border-radius: 50%;
+      box-shadow: 0 0 0 90px rgba(118, 87, 255, 0.035), 0 0 0 180px rgba(118, 87, 255, 0.025);
+      pointer-events: none;
+    }
+    .hero-grid { display: grid; grid-template-columns: 0.92fr 1.08fr; align-items: center; gap: 72px; }
+    .release-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 9px;
+      margin-bottom: 28px;
+      padding: 7px 11px 7px 8px;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      background: rgba(255, 255, 255, 0.58);
+      color: var(--muted);
+      font-family: var(--mono);
+      font-size: 0.72rem;
+      text-decoration: none;
+    }
+    .release-pill span { padding: 2px 7px; border-radius: 999px; background: var(--lime); color: #223400; font-weight: 800; }
+    h1 { margin: 0; font-size: clamp(3.4rem, 7vw, 6.9rem); line-height: 0.87; letter-spacing: -0.078em; }
+    h1 .accent { display: block; color: var(--violet); }
+    .hero-copy > p { max-width: 580px; margin: 28px 0 0; color: var(--muted); font-size: clamp(1rem, 1.7vw, 1.22rem); }
+    .hero-actions { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 34px; }
+    .button {
+      display: inline-flex;
+      min-height: 48px;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
+      padding: 0 19px;
+      border: 1px solid var(--ink);
+      border-radius: 12px;
+      font-size: 0.9rem;
+      font-weight: 760;
+      text-decoration: none;
+      transition: transform 150ms ease, box-shadow 150ms ease;
+    }
+    .button:hover { transform: translateY(-2px); }
+    .button-primary { background: var(--navy); color: white; box-shadow: 5px 5px 0 var(--lime); }
+    .button-secondary { background: var(--paper-strong); }
+    .trust-row { display: flex; flex-wrap: wrap; gap: 18px; margin-top: 34px; color: var(--faint); font-family: var(--mono); font-size: 0.7rem; }
+    .trust-row span { display: inline-flex; align-items: center; gap: 7px; }
+    .trust-row span::before { content: "✓"; color: var(--lime-dark); font-weight: 900; }
+
+    .terminal-shell { position: relative; }
+    .terminal-shell::before {
+      content: "agent-ready";
+      position: absolute;
+      z-index: 2;
+      right: -22px;
+      top: -22px;
+      padding: 9px 14px;
+      border-radius: 9px;
+      background: var(--lime);
+      color: #1b2b00;
+      font-family: var(--mono);
+      font-size: 0.68rem;
+      font-weight: 800;
+      transform: rotate(4deg);
+      box-shadow: 4px 4px 0 #1b2b00;
+    }
+    .terminal {
+      overflow: hidden;
+      border: 1px solid #27334a;
+      border-radius: 22px;
+      background: var(--navy);
+      color: #dce7f8;
+      box-shadow: var(--shadow), 14px 14px 0 rgba(118, 87, 255, 0.13);
+      transform: rotate(-1deg);
+    }
+    .terminal-bar { display: flex; min-height: 52px; align-items: center; gap: 8px; padding: 0 18px; border-bottom: 1px solid #27334a; background: #101a2b; }
+    .dot { width: 10px; height: 10px; border-radius: 50%; }
+    .dot.red { background: #ff6b6b; }
+    .dot.yellow { background: #ffd05b; }
+    .dot.green { background: #70e59b; }
+    .terminal-title { margin-left: 8px; color: #7f8da5; font-family: var(--mono); font-size: 0.7rem; }
+    .terminal-body { min-height: 430px; padding: 28px; font-family: var(--mono); font-size: clamp(0.73rem, 1.15vw, 0.88rem); line-height: 1.85; }
+    .terminal-line { display: block; }
+    .prompt { color: var(--lime); }
+    .command { color: white; }
+    .flag { color: var(--cyan); }
+    .value { color: #ffbb91; }
+    .output { color: #8998b0; }
+    .success { color: #7aeda2; }
+    .terminal-spacer { height: 14px; }
+    .cursor { display: inline-block; width: 8px; height: 1.15em; margin-left: 5px; background: var(--lime); vertical-align: -0.16em; animation: blink 1.1s steps(1) infinite; }
+    @keyframes blink { 50% { opacity: 0; } }
+
+    .metrics { border-bottom: 1px solid var(--line); background: var(--paper-strong); }
+    .metrics-grid { display: grid; grid-template-columns: repeat(4, 1fr); }
+    .metric { padding: 28px 24px; border-right: 1px solid var(--line); }
+    .metric:last-child { border-right: 0; }
+    .metric strong { display: block; font-size: 1.5rem; letter-spacing: -0.04em; }
+    .metric span { color: var(--muted); font-size: 0.78rem; }
+
+    .install { padding: 108px 0; }
+    .install-grid { display: grid; grid-template-columns: 0.78fr 1.22fr; gap: 80px; align-items: start; }
+    .install-card { border: 1px solid #28354c; border-radius: var(--radius); background: var(--navy); box-shadow: 10px 10px 0 var(--lime); }
+    .tabs { display: flex; gap: 4px; padding: 10px; border-bottom: 1px solid #28354c; }
+    .tab {
+      padding: 9px 13px;
+      border: 0;
+      border-radius: 8px;
+      background: transparent;
+      color: #8694aa;
+      cursor: pointer;
+      font-family: var(--mono);
+      font-size: 0.72rem;
+      font-weight: 700;
+    }
+    .tab[aria-selected="true"] { background: #202d43; color: white; }
+    .tab-panel { position: relative; min-height: 118px; padding: 28px; }
+    .tab-panel[hidden] { display: none; }
+    .install-command { margin: 0; overflow-x: auto; color: #d9e4f5; font-size: 0.82rem; line-height: 1.9; white-space: pre-wrap; }
+    .install-command .dollar { color: var(--lime); }
+    .copy-button {
+      position: absolute;
+      right: 14px;
+      bottom: 14px;
+      padding: 7px 10px;
+      border: 1px solid #34415a;
+      border-radius: 7px;
+      background: #172338;
+      color: #aebbd0;
+      cursor: pointer;
+      font-family: var(--mono);
+      font-size: 0.67rem;
+    }
+    .install-note { margin: 22px 0 0; color: var(--muted); font-size: 0.84rem; }
+
+    .features { padding: 110px 0; background: var(--navy); color: white; }
+    .features .eyebrow { color: var(--lime); }
+    .features .section-lead { color: #8f9cb1; }
+    .feature-grid { display: grid; grid-template-columns: repeat(12, 1fr); gap: 14px; margin-top: 58px; }
+    .feature-card {
+      min-height: 245px;
+      padding: 28px;
+      border: 1px solid #27334a;
+      border-radius: 16px;
+      background: var(--navy-soft);
+      transition: transform 180ms ease, border-color 180ms ease;
+    }
+    .feature-card:hover { transform: translateY(-4px); border-color: #52627d; }
+    .feature-card.large { grid-column: span 6; }
+    .feature-card.small { grid-column: span 3; }
+    .feature-number { color: var(--lime); font-family: var(--mono); font-size: 0.72rem; }
+    .feature-card h3 { margin: 42px 0 12px; font-size: 1.35rem; letter-spacing: -0.035em; }
+    .feature-card p { max-width: 480px; margin: 0; color: #98a5b9; font-size: 0.9rem; }
+    .feature-card code { color: var(--cyan); }
+    .feature-card.snapshot { background: linear-gradient(145deg, #1d2341, #121d30); }
+    .feature-card.watch { background: linear-gradient(145deg, #152b2d, #121d30); }
+
+    .agent-section { padding: 112px 0; overflow: hidden; }
+    .agent-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 72px; align-items: center; }
+    .agent-copy blockquote { margin: 30px 0 0; padding-left: 20px; border-left: 3px solid var(--violet); color: var(--muted); font-size: 1.05rem; }
+    .agent-gaps { display: grid; gap: 12px; margin: 28px 0 0; padding: 0; list-style: none; }
+    .agent-gaps li { position: relative; padding-left: 26px; color: var(--muted); }
+    .agent-gaps li::before { content: "✓"; position: absolute; left: 0; color: var(--green); font-weight: 800; }
+    .agent-gaps strong { color: var(--text); }
+    .tool-cloud { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; padding: 24px; border: 1px solid var(--line); border-radius: 24px; background: var(--paper-strong); box-shadow: var(--shadow); transform: rotate(1deg); }
+    .tool {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 13px 14px;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      background: #fbfcf9;
+      font-family: var(--mono);
+      font-size: 0.72rem;
+    }
+    .tool::before { content: "↳"; color: var(--violet); font-weight: 900; }
+    .tool.highlight { border-color: rgba(118, 87, 255, 0.45); background: rgba(118, 87, 255, 0.06); }
+
+    .workflow { padding: 104px 0; border-block: 1px solid var(--line); background: #eef0ea; }
+    .workflow-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1px; margin-top: 54px; border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; background: var(--line); }
+    .workflow-step { min-height: 250px; padding: 28px; background: var(--paper-strong); }
+    .step-index { display: grid; width: 34px; height: 34px; place-items: center; border-radius: 50%; background: var(--ink); color: var(--lime); font-family: var(--mono); font-size: 0.7rem; }
+    .workflow-step h3 { margin: 45px 0 10px; font-size: 1.15rem; }
+    .workflow-step p { margin: 0; color: var(--muted); font-size: 0.88rem; }
+    .workflow-step code { display: inline-block; margin-top: 18px; color: var(--violet); }
+
+    .cta { padding: 110px 0; }
+    .cta-card {
+      position: relative;
+      overflow: hidden;
+      display: grid;
+      grid-template-columns: 1fr auto;
+      align-items: end;
+      gap: 40px;
+      padding: 52px;
+      border-radius: 24px;
+      background: var(--violet);
+      color: white;
+      box-shadow: 12px 12px 0 var(--navy);
+    }
+    .cta-card::after { content: "$_"; position: absolute; right: 34px; top: -26px; color: rgba(255,255,255,0.1); font-family: var(--mono); font-size: 9rem; font-weight: 900; }
+    .cta-card h2 { position: relative; z-index: 1; max-width: 700px; margin: 0; font-size: clamp(2.3rem, 5vw, 4.7rem); line-height: 0.98; letter-spacing: -0.06em; }
+    .cta-card .button { position: relative; z-index: 1; border-color: var(--navy); background: var(--lime); color: var(--navy); box-shadow: 5px 5px 0 var(--navy); }
+
+    footer { padding: 34px 0 46px; border-top: 1px solid var(--line); }
+    .footer-grid { display: flex; align-items: center; justify-content: space-between; gap: 24px; color: var(--muted); font-size: 0.78rem; }
+    .footer-links { display: flex; gap: 18px; }
+    .footer-links a { text-decoration: none; }
+    .footer-links a:hover { color: var(--ink); }
+
+    :focus-visible { outline: 3px solid var(--violet); outline-offset: 3px; }
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after { scroll-behavior: auto !important; animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; transition-duration: 0.01ms !important; }
+    }
+    @media (max-width: 900px) {
+      .hero-grid, .install-grid, .agent-grid { grid-template-columns: 1fr; }
+      .hero-grid { gap: 58px; }
+      .terminal-shell { width: min(100%, 680px); }
+      .metrics-grid { grid-template-columns: repeat(2, 1fr); }
+      .metric:nth-child(2) { border-right: 0; }
+      .metric:nth-child(-n+2) { border-bottom: 1px solid var(--line); }
+      .feature-card.large, .feature-card.small { grid-column: span 6; }
+      .workflow-grid { grid-template-columns: 1fr; }
+      .cta-card { grid-template-columns: 1fr; align-items: start; }
+    }
+    @media (max-width: 680px) {
+      .container { width: min(100% - 26px, 1180px); }
+      .nav { min-height: 62px; }
+      .nav-links a:not(.github-link) { display: none; }
+      .github-link span { display: none; }
+      .hero { padding: 62px 0 72px; }
+      h1 { font-size: clamp(3.15rem, 17vw, 5rem); }
+      .terminal-shell::before { right: 8px; }
+      .terminal { transform: none; }
+      .terminal-body { min-height: 390px; padding: 20px; }
+      .install, .features, .agent-section, .workflow, .cta { padding: 78px 0; }
+      .feature-card.large, .feature-card.small { grid-column: 1 / -1; min-height: 220px; }
+      .tool-cloud { padding: 14px; transform: none; }
+      .tool { padding: 11px 10px; font-size: 0.64rem; }
+      .cta-card { padding: 34px 26px; }
+      .footer-grid { align-items: flex-start; flex-direction: column; }
+    }
+  </style>
+</head>
+<body>
+  <header class="site-header">
+    <nav class="nav container" aria-label="Primary navigation">
+      <a class="brand" href="#top" aria-label="venv-manager home">
+        <span class="brand-mark" aria-hidden="true">vm</span>
+        <span>venv-manager</span>
+      </a>
+      <div class="nav-links">
+        <a href="#install">Install</a>
+        <a href="#features">Features</a>
+        <a href="#agents">MCP</a>
+        <a class="github-link" href="https://github.com/jacopobonomi/venv_manager" rel="noreferrer">
+          <span>GitHub</span>
+          <span aria-hidden="true">↗</span>
+        </a>
+      </div>
+    </nav>
+  </header>
+
+  <main id="top">
+    <section class="hero">
+      <div class="hero-grid container">
+        <div class="hero-copy">
+          <a class="release-pill" href="https://github.com/jacopobonomi/venv_manager/releases"><span>NEW</span> registry · snapshot diff · MCP policy</a>
+          <h1>One Python runtime layer. <span class="accent">Every AI agent.</span></h1>
+          <p>Claude, Codex and other coding agents can run Python. venv-manager gives all of them the same persistent, observable and reversible environment state.</p>
+          <div class="hero-actions">
+            <a class="button button-primary" href="#install">Install venv-manager <span aria-hidden="true">↓</span></a>
+            <a class="button button-secondary" href="https://github.com/jacopobonomi/venv_manager">Read the source <span aria-hidden="true">↗</span></a>
+          </div>
+          <div class="trust-row" aria-label="Project highlights">
+            <span>Single binary</span>
+            <span>MIT licensed</span>
+            <span>No daemon</span>
+          </div>
+        </div>
+
+        <div class="terminal-shell" aria-label="venv-manager terminal demonstration">
+          <div class="terminal">
+            <div class="terminal-bar"><i class="dot red"></i><i class="dot yellow"></i><i class="dot green"></i><span class="terminal-title">~/projects/agent-workspace</span></div>
+            <div class="terminal-body">
+              <span class="terminal-line"><span class="prompt">❯</span> <span class="command">venv-manager create research</span> <span class="flag">--python</span> <span class="value">3.12</span></span>
+              <span class="terminal-line success">✨ Created virtual environment 'research'</span>
+              <span class="terminal-spacer"></span>
+              <span class="terminal-line"><span class="prompt">❯</span> <span class="command">venv-manager watch app.py</span> <span class="flag">--venv</span> <span class="value">research</span></span>
+              <span class="terminal-line output">watching app.py — syncing imports on change</span>
+              <span class="terminal-line output">[14:22:08] installing missing: pandas, rich</span>
+              <span class="terminal-line success">[14:22:10] ok: 2 installed</span>
+              <span class="terminal-spacer"></span>
+              <span class="terminal-line"><span class="prompt">❯</span> <span class="command">venv-manager snapshot research</span> <span class="flag">-l</span> <span class="value">before-agent-run</span></span>
+              <span class="terminal-line success">📸 Snapshot created · 27 packages</span>
+              <span class="terminal-spacer"></span>
+              <span class="terminal-line"><span class="prompt">❯</span> <span class="command">venv-manager exec</span> <span class="flag">--sandbox --with requests</span> <span class="value">-- python task.py</span></span>
+              <span class="terminal-line output">isolated run complete · environment removed</span>
+              <span class="terminal-line"><span class="prompt">❯</span><span class="cursor" aria-hidden="true"></span></span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="metrics" aria-label="Project facts">
+      <div class="metrics-grid container">
+        <div class="metric"><strong>1</strong><span>static Go binary</span></div>
+        <div class="metric"><strong>16</strong><span>typed MCP tools</span></div>
+        <div class="metric"><strong>0</strong><span>background daemons</span></div>
+        <div class="metric"><strong>3</strong><span>interfaces: CLI, TUI, MCP</span></div>
+      </div>
+    </section>
+
+    <section class="install" id="install">
+      <div class="install-grid container">
+        <div>
+          <p class="eyebrow">Get running</p>
+          <h2 class="section-title">Install once.<br>Use everywhere.</h2>
+          <p class="section-lead">Requires Python 3 at runtime. Use Homebrew, grab a release binary, or build from source with Go 1.24+.</p>
+        </div>
+        <div>
+          <div class="install-card">
+            <div class="tabs" role="tablist" aria-label="Installation methods">
+              <button class="tab" role="tab" aria-selected="true" aria-controls="panel-brew" id="tab-brew" data-tab="brew">Homebrew</button>
+              <button class="tab" role="tab" aria-selected="false" aria-controls="panel-curl" id="tab-curl" data-tab="curl" tabindex="-1">curl</button>
+              <button class="tab" role="tab" aria-selected="false" aria-controls="panel-source" id="tab-source" data-tab="source" tabindex="-1">Source</button>
+            </div>
+            <div class="tab-panel" id="panel-brew" role="tabpanel" aria-labelledby="tab-brew" data-command="brew install jacopobonomi/tap/venv-manager">
+              <pre class="install-command"><span class="dollar">$</span> brew install jacopobonomi/tap/venv-manager</pre>
+              <button class="copy-button" type="button">copy</button>
+            </div>
+            <div class="tab-panel" id="panel-curl" role="tabpanel" aria-labelledby="tab-curl" data-command="curl -sSL https://raw.githubusercontent.com/jacopobonomi/venv_manager/main/install.sh | bash" hidden>
+              <pre class="install-command"><span class="dollar">$</span> curl -sSL https://raw.githubusercontent.com/jacopobonomi/venv_manager/main/install.sh | bash</pre>
+              <button class="copy-button" type="button">copy</button>
+            </div>
+            <div class="tab-panel" id="panel-source" role="tabpanel" aria-labelledby="tab-source" data-command="git clone https://github.com/jacopobonomi/venv_manager &amp;&amp; cd venv_manager &amp;&amp; make install" hidden>
+              <pre class="install-command"><span class="dollar">$</span> git clone https://github.com/jacopobonomi/venv_manager
+<span class="dollar">$</span> cd venv_manager &amp;&amp; make install</pre>
+              <button class="copy-button" type="button">copy</button>
+            </div>
+          </div>
+          <p class="install-note">Then run <code>venv-manager doctor</code> to verify Python, <code>uv</code> and your environment directory.</p>
+        </div>
+      </div>
+    </section>
+
+    <section class="features" id="features">
+      <div class="container">
+        <p class="eyebrow">Beyond create &amp; delete</p>
+        <h2 class="section-title">More than sandboxing. Durable environment control.</h2>
+        <p class="section-lead">Agent permissions decide what may happen now. venv-manager records what exists, what changed and how to recover — across clients and sessions.</p>
+        <div class="feature-grid">
+          <article class="feature-card large snapshot"><span class="feature-number">01 / STATE</span><h3>Snapshot before the risky part.</h3><p>Capture <code>pip freeze</code>, label the state, compare it later and roll back without deleting the working environment first.</p></article>
+          <article class="feature-card large watch"><span class="feature-number">02 / SYNC</span><h3>Let the environment follow the code.</h3><p>Watch Python files, detect third-party imports, ignore local modules and install only what is missing — serially and safely.</p></article>
+          <article class="feature-card small"><span class="feature-number">03 / ISOLATE</span><h3>Ephemeral exec</h3><p>Create → install → run → destroy. Add <code>--sandbox</code> for OS-level network and write restrictions.</p></article>
+          <article class="feature-card small"><span class="feature-number">04 / EXPLAIN</span><h3>Know why it is there</h3><p><code>why myenv numpy</code> walks reverse dependencies back to the top-level package.</p></article>
+          <article class="feature-card small"><span class="feature-number">05 / INSPECT</span><h3>Machine-readable truth</h3><p><code>describe</code> returns paths, versions, packages, size, activation commands and a stable freeze hash.</p></article>
+          <article class="feature-card small"><span class="feature-number">06 / REGISTRY</span><h3>Usage metadata that persists</h3><p>Track creation, real last use, project associations and tags. <code>prune</code> acts on metadata instead of guesses.</p></article>
+        </div>
+      </div>
+    </section>
+
+    <section class="agent-section" id="agents">
+      <div class="agent-grid container">
+        <div class="agent-copy">
+          <p class="eyebrow">Native MCP server</p>
+          <h2 class="section-title">The sandbox protects your machine. This protects your workflow.</h2>
+          <p class="section-lead">Run <code>venv-manager mcp</code> and give Claude, Codex, Cursor, Zed or any MCP client one consistent source of truth instead of separate terminal sessions full of assumptions.</p>
+          <ul class="agent-gaps">
+            <li><strong>Shared state:</strong> switch agents without losing environment context.</li>
+            <li><strong>Observable changes:</strong> see exactly which packages an agent added, removed or upgraded.</li>
+            <li><strong>Recovery:</strong> snapshot before a run and roll back when an installation goes wrong.</li>
+            <li><strong>Consistent policy:</strong> keep read-only, safe or allowlisted tools across different clients.</li>
+          </ul>
+          <blockquote>Permissions control what an agent may do. venv-manager records what it did and gives you a path back.</blockquote>
+          <div class="hero-actions"><a class="button button-primary" href="https://github.com/jacopobonomi/venv_manager#ai-integration">Configure MCP <span aria-hidden="true">↗</span></a></div>
+        </div>
+        <div class="tool-cloud" aria-label="Available MCP tools">
+          <span class="tool highlight">describe_venv</span><span class="tool">list_venvs</span>
+          <span class="tool">create_venv</span><span class="tool">remove_venv</span>
+          <span class="tool highlight">exec_ephemeral</span><span class="tool">run_in_venv</span>
+          <span class="tool">install_packages</span><span class="tool highlight">snapshot_venv</span>
+          <span class="tool">list_snapshots</span><span class="tool">rollback_venv</span>
+          <span class="tool highlight">diff_snapshots</span><span class="tool">scan_imports</span>
+          <span class="tool">why</span><span class="tool highlight">list_registry</span>
+          <span class="tool">set_registry_metadata</span><span class="tool">doctor</span>
+        </div>
+      </div>
+    </section>
+
+    <section class="workflow">
+      <div class="container">
+        <p class="eyebrow">One workflow, three interfaces</p>
+        <h2 class="section-title">Human-friendly outside.<br>Predictable inside.</h2>
+        <div class="workflow-grid">
+          <article class="workflow-step"><span class="step-index">01</span><h3>Use the CLI in scripts</h3><p>Concise commands, structured JSON output and shell completion for repeatable automation.</p><code>venv-manager list --json</code></article>
+          <article class="workflow-step"><span class="step-index">02</span><h3>Browse through the TUI</h3><p>Inspect environment sizes and packages, clean caches and remove stale runtimes interactively.</p><code>venv-manager tui</code></article>
+          <article class="workflow-step"><span class="step-index">03</span><h3>Connect an AI client</h3><p>The same manager operations become typed tools over stdio, with validation at the boundary.</p><code>venv-manager mcp</code></article>
+        </div>
+      </div>
+    </section>
+
+    <section class="cta">
+      <div class="container">
+        <div class="cta-card">
+          <h2>Give every AI agent the same Python environment truth.</h2>
+          <a class="button" href="#install">Install now <span aria-hidden="true">↓</span></a>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer>
+    <div class="footer-grid container">
+      <span>venv-manager · MIT licensed · built in Go by Jacopo Bonomi</span>
+      <div class="footer-links"><a href="https://github.com/jacopobonomi/venv_manager">GitHub</a><a href="https://github.com/jacopobonomi/venv_manager/releases">Releases</a><a href="https://github.com/jacopobonomi/venv_manager/blob/main/SECURITY.md">Security</a></div>
+    </div>
+  </footer>
+
+  <script>
+    const tabs = [...document.querySelectorAll('[role="tab"]')];
+    const panels = [...document.querySelectorAll('[role="tabpanel"]')];
+
+    function activateTab(tab) {
+      tabs.forEach((item) => {
+        const selected = item === tab;
+        item.setAttribute('aria-selected', String(selected));
+        item.tabIndex = selected ? 0 : -1;
+      });
+      panels.forEach((panel) => {
+        panel.hidden = panel.id !== tab.getAttribute('aria-controls');
+      });
+    }
+
+    tabs.forEach((tab, index) => {
+      tab.addEventListener('click', () => activateTab(tab));
+      tab.addEventListener('keydown', (event) => {
+        if (!['ArrowLeft', 'ArrowRight'].includes(event.key)) return;
+        event.preventDefault();
+        const offset = event.key === 'ArrowRight' ? 1 : -1;
+        const next = tabs[(index + offset + tabs.length) % tabs.length];
+        activateTab(next);
+        next.focus();
+      });
+    });
+
+    document.querySelectorAll('.copy-button').forEach((button) => {
+      button.addEventListener('click', async () => {
+        const panel = button.closest('.tab-panel');
+        try {
+          await navigator.clipboard.writeText(panel.dataset.command);
+          button.textContent = 'copied';
+          window.setTimeout(() => { button.textContent = 'copy'; }, 1400);
+        } catch {
+          button.textContent = 'select text';
+        }
+      });
+    });
+  </script>
+</body>
+</html>

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/jacopobonomi/venv-manager/internal/config"
 	"github.com/jacopobonomi/venv-manager/internal/manager"
@@ -56,7 +57,7 @@ func init() {
 		runCmd(), doctorCmd(), pruneCmd(), exportCmd(), importCmd(),
 		configCmd(), tuiCmd(), describeCmd(), execCmd(), mcpCmd(),
 		snapshotCmd(), snapshotsCmd(), rollbackCmd(), scanCmd(), watchCmd(),
-		whyCmd(), completionCmd(),
+		snapshotDiffCmd(), registryCmd(), whyCmd(), completionCmd(),
 	)
 }
 
@@ -197,6 +198,7 @@ func upgradeCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "upgrade [name]",
 		Short: "Upgrade packages in an environment",
+		Args:  singleOrGlobalArgs,
 		Run: func(_ *cobra.Command, args []string) {
 			mgr.SetGlobal(globalFlag)
 			name := ""
@@ -215,6 +217,7 @@ func cleanCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "clean [name]",
 		Short: "Clean cache files",
+		Args:  singleOrGlobalArgs,
 		Run: func(_ *cobra.Command, args []string) {
 			mgr.SetGlobal(globalFlag)
 			name := ""
@@ -261,6 +264,7 @@ func sizeCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "size [name]",
 		Short: "Check the size of a virtual environment",
+		Args:  singleOrGlobalArgs,
 		Run: func(_ *cobra.Command, args []string) {
 			mgr.SetGlobal(globalFlag)
 			name := ""
@@ -326,6 +330,7 @@ func doctorCmd() *cobra.Command {
 func pruneCmd() *cobra.Command {
 	var days int
 	var dryRun bool
+	var yes bool
 	cmd := &cobra.Command{
 		Use:   "prune",
 		Short: "Remove venvs unused for a given number of days",
@@ -347,10 +352,13 @@ func pruneCmd() *cobra.Command {
 			}
 			fmt.Printf("%s🗑️  Stale venvs (older than %d days):%s\n", colorYellow, days, colorReset)
 			for _, s := range stale {
-				fmt.Printf("- %s (last modified %s)\n", s.Name, s.ModTime.Format("2006-01-02"))
+				fmt.Printf("- %s (last used %s)\n", s.Name, s.LastUsedAt.Format("2006-01-02"))
 			}
 			if dryRun {
 				return
+			}
+			if !yes {
+				die(fmt.Errorf("refusing to remove %d venv(s) without --yes; use --dry-run to inspect", len(stale)))
 			}
 			for _, s := range stale {
 				if err := mgr.Remove(s.Name); err != nil {
@@ -363,7 +371,18 @@ func pruneCmd() *cobra.Command {
 	}
 	cmd.Flags().IntVar(&days, "days", 0, "Age threshold in days (defaults to config prune_after_days)")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Only report; do not remove")
+	cmd.Flags().BoolVarP(&yes, "yes", "y", false, "Confirm removal of all reported stale environments")
 	return cmd
+}
+
+func singleOrGlobalArgs(_ *cobra.Command, args []string) error {
+	if len(args) > 1 {
+		return fmt.Errorf("accepts at most one venv name")
+	}
+	if globalFlag && len(args) > 0 {
+		return fmt.Errorf("venv name cannot be combined with --global")
+	}
+	return nil
 }
 
 func exportCmd() *cobra.Command {
@@ -538,7 +557,9 @@ Examples:
 }
 
 func mcpCmd() *cobra.Command {
-	return &cobra.Command{
+	var policyMode string
+	var allowedTools []string
+	cmd := &cobra.Command{
 		Use:   "mcp",
 		Short: "Run as a Model Context Protocol server over stdio",
 		Long: `Speak MCP over stdio so AI clients (Claude Desktop, Cursor, Zed, ...)
@@ -555,11 +576,18 @@ Wire it up in Claude Desktop by adding to claude_desktop_config.json:
     }
   }`,
 		Run: func(_ *cobra.Command, _ []string) {
-			if err := mcp.NewServer(mgr).Serve(); err != nil {
+			policy, err := mcp.NewPolicy(policyMode, allowedTools)
+			if err != nil {
+				die(err)
+			}
+			if err := mcp.NewServerWithPolicy(mgr, policy).Serve(); err != nil {
 				die(err)
 			}
 		},
 	}
+	cmd.Flags().StringVar(&policyMode, "policy", string(mcp.PolicySafe), "MCP policy: read-only, safe, or full")
+	cmd.Flags().StringSliceVar(&allowedTools, "allow-tool", nil, "Restrict MCP to these tools (comma-separated or repeated)")
+	return cmd
 }
 
 func tuiCmd() *cobra.Command {
@@ -639,6 +667,101 @@ func rollbackCmd() *cobra.Command {
 			fmt.Printf("%s↩️  Restored '%s' from snapshot %s%s\n", colorGreen, args[0], s.ID, colorReset)
 		},
 	}
+}
+
+func snapshotDiffCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "snapshot-diff <name> <from-id> [to-id]",
+		Short: "Compare two snapshots, or a snapshot with the current venv",
+		Args:  cobra.RangeArgs(2, 3),
+		Run: func(_ *cobra.Command, args []string) {
+			toID := ""
+			if len(args) == 3 {
+				toID = args[2]
+			}
+			diff, err := mgr.DiffSnapshots(args[0], args[1], toID)
+			if err != nil {
+				die(err)
+			}
+			if jsonFlag {
+				printJSON(diff)
+				return
+			}
+			fmt.Printf("%sΔ %s: %s → %s%s\n", colorYellow, diff.Venv, diff.From, diff.To, colorReset)
+			for _, spec := range diff.Added {
+				fmt.Printf("%s+ %s%s\n", colorGreen, spec, colorReset)
+			}
+			for _, spec := range diff.Removed {
+				fmt.Printf("%s- %s%s\n", colorRed, spec, colorReset)
+			}
+			for _, change := range diff.Changed {
+				fmt.Printf("~ %s: %s → %s\n", change.Name, change.From, change.To)
+			}
+			if len(diff.Added) == 0 && len(diff.Removed) == 0 && len(diff.Changed) == 0 {
+				fmt.Println("No package changes.")
+			}
+		},
+	}
+}
+
+func registryCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "registry [name]",
+		Short: "Show persistent metadata for managed environments",
+		Args:  cobra.MaximumNArgs(1),
+		Run: func(_ *cobra.Command, args []string) {
+			if len(args) == 1 {
+				entry, err := mgr.RegistryEntry(args[0])
+				if err != nil {
+					die(err)
+				}
+				printJSON(entry)
+				return
+			}
+			entries, err := mgr.RegistryEntries()
+			if err != nil {
+				die(err)
+			}
+			if jsonFlag {
+				printJSON(entries)
+				return
+			}
+			if len(entries) == 0 {
+				fmt.Println("Registry is empty.")
+				return
+			}
+			for _, entry := range entries {
+				project := entry.ProjectPath
+				if project == "" {
+					project = "—"
+				}
+				fmt.Printf("%-20s last used %s  project %s", entry.Name, entry.LastUsedAt.Local().Format("2006-01-02 15:04"), project)
+				if len(entry.Tags) > 0 {
+					fmt.Printf("  tags %s", strings.Join(entry.Tags, ","))
+				}
+				fmt.Println()
+			}
+		},
+	}
+
+	var projectPath string
+	var tags []string
+	setCmd := &cobra.Command{
+		Use:   "set <name>",
+		Short: "Associate a project path and tags with a venv",
+		Args:  cobra.ExactArgs(1),
+		Run: func(_ *cobra.Command, args []string) {
+			entry, err := mgr.SetRegistryMetadata(args[0], projectPath, tags)
+			if err != nil {
+				die(err)
+			}
+			printJSON(entry)
+		},
+	}
+	setCmd.Flags().StringVar(&projectPath, "project", "", "Project path associated with the venv")
+	setCmd.Flags().StringSliceVar(&tags, "tag", nil, "Tags (comma-separated or repeated)")
+	cmd.AddCommand(setCmd)
+	return cmd
 }
 
 func scanCmd() *cobra.Command {

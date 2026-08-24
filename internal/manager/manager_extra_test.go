@@ -59,7 +59,7 @@ func TestEnsureVenv(t *testing.T) {
 		t.Fatal("expected error for missing venv")
 	}
 	// present
-	os.MkdirAll(filepath.Join(dir, "v"), 0o755)
+	makeFakeVenv(t, dir, "v")
 	if _, err := m.EnsureVenv("v"); err != nil {
 		t.Fatalf("EnsureVenv: %v", err)
 	}
@@ -89,7 +89,7 @@ func TestRemoveInvalidName(t *testing.T) {
 
 func TestGetActivationCommand(t *testing.T) {
 	m, dir := newTestMgr(t)
-	os.MkdirAll(filepath.Join(dir, "v"), 0o755)
+	makeFakeVenv(t, dir, "v")
 
 	cases := map[string]string{
 		"bash":       "activate",
@@ -105,8 +105,8 @@ func TestGetActivationCommand(t *testing.T) {
 			t.Errorf("GetActivationCommand(%q): %v", shell, err)
 			continue
 		}
-		if !strings.HasSuffix(cmd, suffix) {
-			t.Errorf("shell %q: expected suffix %q in %q", shell, suffix, cmd)
+		if !strings.Contains(cmd, suffix) {
+			t.Errorf("shell %q: expected %q in %q", shell, suffix, cmd)
 		}
 	}
 	// missing venv
@@ -115,10 +115,39 @@ func TestGetActivationCommand(t *testing.T) {
 	}
 }
 
+func TestGetActivationCommandQuotesPaths(t *testing.T) {
+	base := filepath.Join(t.TempDir(), "venvs with 'quotes'")
+	m := New(base)
+	makeFakeVenv(t, base, "v")
+
+	posix, err := m.GetActivationCommand("v", "bash")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(posix, `'"'"'`) || !strings.HasPrefix(posix, "source '") {
+		t.Fatalf("unsafe POSIX activation command: %q", posix)
+	}
+	pwsh, err := m.GetActivationCommand("v", "powershell")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(pwsh, "''") || !strings.HasPrefix(pwsh, ". '") {
+		t.Fatalf("unsafe PowerShell activation command: %q", pwsh)
+	}
+}
+
+func TestEnsureVenvRejectsOrdinaryDirectory(t *testing.T) {
+	m, dir := newTestMgr(t)
+	os.MkdirAll(filepath.Join(dir, "ordinary"), 0o755)
+	if _, err := m.EnsureVenv("ordinary"); err == nil {
+		t.Fatal("ordinary directory must not be accepted as a venv")
+	}
+}
+
 func TestGetSizeGlobal(t *testing.T) {
 	m, dir := newTestMgr(t)
 	for _, n := range []string{"a", "b"} {
-		os.MkdirAll(filepath.Join(dir, n), 0o755)
+		makeFakeVenv(t, dir, n)
 		os.WriteFile(filepath.Join(dir, n, "f"), []byte("data"), 0o644)
 	}
 	m.SetGlobal(true)
@@ -133,7 +162,7 @@ func TestGetSizeGlobal(t *testing.T) {
 
 func TestGetSizeSingle(t *testing.T) {
 	m, dir := newTestMgr(t)
-	os.MkdirAll(filepath.Join(dir, "v"), 0o755)
+	makeFakeVenv(t, dir, "v")
 	os.WriteFile(filepath.Join(dir, "v", "f"), []byte("hello"), 0o644)
 	sizes, err := m.GetSize("v")
 	if err != nil {
@@ -171,7 +200,7 @@ func TestExportMissingVenv(t *testing.T) {
 
 func TestDeleteSnapshotMissing(t *testing.T) {
 	m, dir := newTestMgr(t)
-	os.MkdirAll(filepath.Join(dir, "v"), 0o755)
+	makeFakeVenv(t, dir, "v")
 	if err := m.DeleteSnapshot("v", "nope"); err == nil {
 		t.Fatal("expected error for missing snapshot")
 	}

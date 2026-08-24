@@ -3,6 +3,12 @@
 All notable changes to this project are documented here.
 Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
 
+## Unreleased
+
+- Add an atomic persistent venv registry with project metadata, tags, and accurate last-used timestamps used by `prune`.
+- Add `snapshot-diff` CLI and `diff_snapshots` MCP tool for package-level state comparisons.
+- Add MCP `read-only`, `safe`, and `full` policy modes, explicit confirmation for sensitive tools, and tool allowlists.
+
 ## [0.1.0] - 2026-07-20
 
 First tagged release.

@@ -1,6 +1,7 @@
 package mcp
 
 import (
+	"bufio"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -144,5 +145,142 @@ func TestWriteErr(t *testing.T) {
 	s.writeErr(json.RawMessage(`1`), -32601, "not found")
 	if !strings.Contains(buf.String(), "-32601") {
 		t.Fatalf("expected error code in output, got %s", buf)
+	}
+}
+
+func TestServeProcessesFinalLineWithoutNewline(t *testing.T) {
+	input := strings.Join([]string{
+		`{"jsonrpc":"2.0","id":1,"method":"initialize"}`,
+		`not-json`,
+		`{"jsonrpc":"2.0","id":2,"method":"ping"}`,
+	}, "\n")
+	out := &strings.Builder{}
+	s := &Server{
+		mgr: manager.New(t.TempDir()),
+		in:  bufio.NewReader(strings.NewReader(input)),
+		out: out,
+		log: &strings.Builder{},
+	}
+	if err := s.Serve(); err != nil {
+		t.Fatal(err)
+	}
+	result := out.String()
+	for _, expected := range []string{`"id":1`, `"id":2`, `"protocolVersion"`, `"code":-32700`} {
+		if !strings.Contains(result, expected) {
+			t.Errorf("missing %q in %s", expected, result)
+		}
+	}
+}
+
+func TestHandleMethodsAndNotifications(t *testing.T) {
+	out := &strings.Builder{}
+	s := &Server{mgr: manager.New(t.TempDir()), out: out, log: &strings.Builder{}}
+	for _, req := range []rpcRequest{
+		{ID: json.RawMessage(`1`), Method: "tools/list"},
+		{ID: json.RawMessage(`2`), Method: "missing/method"},
+		{Method: "notifications/initialized"},
+		{Method: "unknown-notification"},
+	} {
+		s.handle(req)
+	}
+	result := out.String()
+	if !strings.Contains(result, "list_venvs") || !strings.Contains(result, "-32601") {
+		t.Fatalf("unexpected handler output: %s", result)
+	}
+}
+
+func TestHandleToolCallResults(t *testing.T) {
+	out := &strings.Builder{}
+	s := &Server{mgr: manager.New(t.TempDir()), out: out, log: &strings.Builder{}}
+	s.handleToolCall(rpcRequest{ID: json.RawMessage(`1`), Params: json.RawMessage(`{`)})
+	s.handleToolCall(rpcRequest{ID: json.RawMessage(`2`), Params: json.RawMessage(`{"name":"unknown","arguments":{}}`)})
+	s.handleToolCall(rpcRequest{ID: json.RawMessage(`3`), Params: json.RawMessage(`{"name":"list_venvs","arguments":{}}`)})
+	result := out.String()
+	if !strings.Contains(result, "-32602") || !strings.Contains(result, `"isError":true`) || !strings.Contains(result, `"id":3`) {
+		t.Fatalf("unexpected tool-call output: %s", result)
+	}
+}
+
+func TestServerHelpers(t *testing.T) {
+	s := NewServer(manager.New(t.TempDir()))
+	if s.in == nil || s.out == nil || s.log == nil {
+		t.Fatal("NewServer left fields uninitialized")
+	}
+	out := &strings.Builder{}
+	s.out = out
+	s.writeResult(nil, map[string]any{})
+	if out.Len() != 0 {
+		t.Fatal("notification result should not be written")
+	}
+
+	args := map[string]any{"items": []any{"one", 2, "three"}, "bad": "value"}
+	items := strSlice(args, "items")
+	if strings.Join(items, ",") != "one,three" || strSlice(args, "bad") != nil {
+		t.Fatalf("unexpected strSlice results: %v", items)
+	}
+}
+
+func TestDispatchValidationBranches(t *testing.T) {
+	s, _ := newTestServer(t)
+	if _, err := s.dispatch("run_in_venv", map[string]any{"name": "v"}); err == nil {
+		t.Fatal("run_in_venv should require a command")
+	}
+	if _, err := s.dispatch("exec_ephemeral", map[string]any{"command": []any{"true"}, "sandbox": true}); err == nil {
+		t.Fatal("MCP sandbox should report unsupported capture")
+	}
+	if _, err := s.dispatch("describe_venv", map[string]any{"name": "missing"}); err == nil {
+		t.Fatal("describe_venv should reject missing venv")
+	}
+}
+
+func TestPolicyBlocksBeforeDispatch(t *testing.T) {
+	dir := t.TempDir()
+	venv := filepath.Join(dir, "keep")
+	os.MkdirAll(venv, 0o755)
+	os.WriteFile(filepath.Join(venv, "pyvenv.cfg"), []byte("home = test\n"), 0o644)
+	policy, _ := NewPolicy("safe", nil)
+	out := &strings.Builder{}
+	s := &Server{mgr: manager.New(dir), out: out, log: &strings.Builder{}, policy: policy}
+	s.handleToolCall(rpcRequest{
+		ID:     json.RawMessage(`1`),
+		Params: json.RawMessage(`{"name":"remove_venv","arguments":{"name":"keep"}}`),
+	})
+	if !strings.Contains(out.String(), "confirm=true") {
+		t.Fatalf("expected policy denial, got %s", out)
+	}
+	if _, err := os.Stat(venv); err != nil {
+		t.Fatalf("policy denial still executed removal: %v", err)
+	}
+}
+
+func TestVisibleToolCatalogRespectsPolicy(t *testing.T) {
+	policy, _ := NewPolicy("read-only", []string{"list_venvs", "doctor"})
+	s := &Server{policy: policy}
+	tools := s.visibleToolCatalog()
+	if len(tools) != 2 || tools[0].Name != "list_venvs" || tools[1].Name != "doctor" {
+		t.Fatalf("unexpected visible tools: %+v", tools)
+	}
+}
+
+func TestDispatchRegistryAndSnapshotDiff(t *testing.T) {
+	s, dir := newTestServer(t)
+	venv := filepath.Join(dir, "v")
+	os.MkdirAll(filepath.Join(venv, ".venv-manager", "snapshots"), 0o755)
+	os.WriteFile(filepath.Join(venv, "pyvenv.cfg"), []byte("home = test\n"), 0o644)
+	snapshotDir := filepath.Join(venv, ".venv-manager", "snapshots")
+	os.WriteFile(filepath.Join(snapshotDir, "a.txt"), []byte("one==1\n"), 0o644)
+	os.WriteFile(filepath.Join(snapshotDir, "b.txt"), []byte("one==2\ntwo==1\n"), 0o644)
+
+	out, err := s.dispatch("diff_snapshots", map[string]any{"name": "v", "from_snapshot_id": "a", "to_snapshot_id": "b"})
+	if err != nil || !strings.Contains(out, `"two==1"`) || !strings.Contains(out, `"changed"`) {
+		t.Fatalf("unexpected diff output: %s %v", out, err)
+	}
+	out, err = s.dispatch("list_registry", nil)
+	if err != nil || !strings.Contains(out, `"name": "v"`) {
+		t.Fatalf("unexpected registry output: %s %v", out, err)
+	}
+	out, err = s.dispatch("set_registry_metadata", map[string]any{"name": "v", "project": dir, "tags": []any{"test"}})
+	if err != nil || !strings.Contains(out, `"test"`) {
+		t.Fatalf("unexpected metadata output: %s %v", out, err)
 	}
 }

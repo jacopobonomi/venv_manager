@@ -127,6 +127,11 @@ func (m *Manager) Scan(path, venv string) (*ScanReport, error) {
 		files = []string{path}
 	}
 
+	localModules, err := discoverLocalModules(path, info)
+	if err != nil {
+		return nil, err
+	}
+
 	seen := map[string]bool{}
 	for _, f := range files {
 		mods, err := extractImports(f)
@@ -141,7 +146,7 @@ func (m *Manager) Scan(path, venv string) (*ScanReport, error) {
 	imports := sortedKeys(seen)
 	var thirdParty, suggested []string
 	for _, imp := range imports {
-		if stdlibModules[imp] || strings.HasPrefix(imp, "_") {
+		if stdlibModules[imp] || localModules[imp] || strings.HasPrefix(imp, "_") {
 			continue
 		}
 		thirdParty = append(thirdParty, imp)
@@ -173,6 +178,33 @@ func (m *Manager) Scan(path, venv string) (*ScanReport, error) {
 		rep.Venv = venv
 	}
 	return rep, nil
+}
+
+func discoverLocalModules(path string, info os.FileInfo) (map[string]bool, error) {
+	root := path
+	if !info.IsDir() {
+		root = filepath.Dir(path)
+	}
+	modules := map[string]bool{}
+	entries, err := os.ReadDir(root)
+	if err != nil {
+		return nil, err
+	}
+	for _, entry := range entries {
+		if entry.IsDir() {
+			if skipWatchDir(entry.Name()) {
+				continue
+			}
+			if _, err := os.Stat(filepath.Join(root, entry.Name(), "__init__.py")); err == nil {
+				modules[entry.Name()] = true
+			}
+			continue
+		}
+		if strings.HasSuffix(entry.Name(), ".py") && entry.Name() != "__init__.py" {
+			modules[strings.TrimSuffix(entry.Name(), ".py")] = true
+		}
+	}
+	return modules, nil
 }
 
 func extractImports(path string) ([]string, error) {

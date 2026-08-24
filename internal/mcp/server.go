@@ -56,19 +56,27 @@ type toolContent struct {
 
 // Server wraps a Manager and speaks MCP.
 type Server struct {
-	mgr *manager.Manager
-	in  *bufio.Reader
-	out io.Writer
-	log io.Writer
+	mgr    *manager.Manager
+	in     *bufio.Reader
+	out    io.Writer
+	log    io.Writer
+	policy Policy
 }
 
 // NewServer builds an MCP server that reads from stdin and writes to stdout.
 func NewServer(mgr *manager.Manager) *Server {
+	policy, _ := NewPolicy(string(PolicySafe), nil)
+	return NewServerWithPolicy(mgr, policy)
+}
+
+// NewServerWithPolicy builds an MCP server with explicit authorization rules.
+func NewServerWithPolicy(mgr *manager.Manager, policy Policy) *Server {
 	return &Server{
-		mgr: mgr,
-		in:  bufio.NewReader(os.Stdin),
-		out: os.Stdout,
-		log: os.Stderr,
+		mgr:    mgr,
+		in:     bufio.NewReader(os.Stdin),
+		out:    os.Stdout,
+		log:    os.Stderr,
+		policy: policy,
 	}
 }
 
@@ -76,22 +84,21 @@ func NewServer(mgr *manager.Manager) *Server {
 func (s *Server) Serve() error {
 	for {
 		line, err := s.in.ReadString('\n')
+		line = strings.TrimSpace(line)
+		if line != "" {
+			var req rpcRequest
+			if unmarshalErr := json.Unmarshal([]byte(line), &req); unmarshalErr != nil {
+				s.writeErr(nil, -32700, "parse error: "+unmarshalErr.Error())
+			} else {
+				s.handle(req)
+			}
+		}
 		if err != nil {
 			if err == io.EOF {
 				return nil
 			}
 			return err
 		}
-		line = strings.TrimSpace(line)
-		if line == "" {
-			continue
-		}
-		var req rpcRequest
-		if err := json.Unmarshal([]byte(line), &req); err != nil {
-			s.writeErr(nil, -32700, "parse error: "+err.Error())
-			continue
-		}
-		s.handle(req)
 	}
 }
 
@@ -106,7 +113,7 @@ func (s *Server) handle(req rpcRequest) {
 	case "notifications/initialized":
 		// no response for notifications
 	case "tools/list":
-		s.writeResult(req.ID, map[string]any{"tools": toolCatalog()})
+		s.writeResult(req.ID, map[string]any{"tools": s.visibleToolCatalog()})
 	case "tools/call":
 		s.handleToolCall(req)
 	case "ping":
@@ -140,6 +147,7 @@ func toolCatalog() []toolDef {
 	arrStr := func(desc string) map[string]any {
 		return map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": desc}
 	}
+	confirmProp := map[string]any{"type": "boolean", "description": "explicitly confirm this sensitive operation when MCP policy is safe"}
 	return []toolDef{
 		{
 			Name:        "list_venvs",
@@ -160,7 +168,7 @@ func toolCatalog() []toolDef {
 			Description: "Delete a virtual environment.",
 			InputSchema: map[string]any{
 				"type": "object", "required": []string{"name"},
-				"properties": map[string]any{"name": strProp("venv name")},
+				"properties": map[string]any{"name": strProp("venv name"), "confirm": confirmProp},
 			},
 		},
 		{
@@ -180,6 +188,7 @@ func toolCatalog() []toolDef {
 					"name":              strProp("venv name"),
 					"packages":          arrStr("pip package specifiers"),
 					"requirements_file": strProp("path to requirements.txt"),
+					"confirm":           confirmProp,
 				},
 			},
 		},
@@ -191,6 +200,7 @@ func toolCatalog() []toolDef {
 				"properties": map[string]any{
 					"name":    strProp("venv name"),
 					"command": arrStr("command and args, e.g. ['python','-c','print(1)']"),
+					"confirm": confirmProp,
 				},
 			},
 		},
@@ -204,6 +214,7 @@ func toolCatalog() []toolDef {
 					"python_version": strProp("optional python version"),
 					"command":        arrStr("command and args"),
 					"sandbox":        map[string]any{"type": "boolean", "description": "run in OS-level sandbox (macOS/Linux only)"},
+					"confirm":        confirmProp,
 				},
 			},
 		},
@@ -239,6 +250,7 @@ func toolCatalog() []toolDef {
 				"properties": map[string]any{
 					"name":        strProp("venv name"),
 					"snapshot_id": strProp("snapshot id (see list_snapshots)"),
+					"confirm":     confirmProp,
 				},
 			},
 		},
@@ -264,7 +276,48 @@ func toolCatalog() []toolDef {
 				},
 			},
 		},
+		{
+			Name:        "diff_snapshots",
+			Description: "Compare two snapshots, or compare a snapshot with the current environment state.",
+			InputSchema: map[string]any{
+				"type": "object", "required": []string{"name", "from_snapshot_id"},
+				"properties": map[string]any{
+					"name":             strProp("venv name"),
+					"from_snapshot_id": strProp("base snapshot id"),
+					"to_snapshot_id":   strProp("optional target snapshot id; omit for current state"),
+				},
+			},
+		},
+		{
+			Name:        "list_registry",
+			Description: "List persistent metadata, project associations, tags, and last-used times for managed venvs.",
+			InputSchema: map[string]any{"type": "object", "properties": map[string]any{}},
+		},
+		{
+			Name:        "set_registry_metadata",
+			Description: "Associate a project path and tags with a managed venv.",
+			InputSchema: map[string]any{
+				"type": "object", "required": []string{"name"},
+				"properties": map[string]any{
+					"name":    strProp("venv name"),
+					"project": strProp("project path"),
+					"tags":    arrStr("metadata tags"),
+					"confirm": confirmProp,
+				},
+			},
+		},
 	}
+}
+
+func (s *Server) visibleToolCatalog() []toolDef {
+	tools := toolCatalog()
+	visible := make([]toolDef, 0, len(tools))
+	for _, tool := range tools {
+		if s.policy.visible(tool.Name) {
+			visible = append(visible, tool)
+		}
+	}
+	return visible
 }
 
 func (s *Server) handleToolCall(req rpcRequest) {
@@ -274,6 +327,14 @@ func (s *Server) handleToolCall(req rpcRequest) {
 	}
 	if err := json.Unmarshal(req.Params, &p); err != nil {
 		s.writeErr(req.ID, -32602, "invalid params: "+err.Error())
+		return
+	}
+
+	if policyErr := s.policy.authorize(p.Name, p.Arguments); policyErr != nil {
+		s.writeResult(req.ID, toolResult{
+			Content: []toolContent{{Type: "text", Text: policyErr.Error()}},
+			IsError: true,
+		})
 		return
 	}
 
@@ -385,6 +446,13 @@ func (s *Server) dispatch(name string, args map[string]any) (string, error) {
 		}
 		return toJSON(snaps), nil
 
+	case "diff_snapshots":
+		diff, err := s.mgr.DiffSnapshots(str(args, "name"), str(args, "from_snapshot_id"), str(args, "to_snapshot_id"))
+		if err != nil {
+			return "", err
+		}
+		return toJSON(diff), nil
+
 	case "rollback_venv":
 		snap, err := s.mgr.Rollback(str(args, "name"), str(args, "snapshot_id"))
 		if err != nil {
@@ -405,6 +473,20 @@ func (s *Server) dispatch(name string, args map[string]any) (string, error) {
 			return "", err
 		}
 		return toJSON(rep), nil
+
+	case "list_registry":
+		entries, err := s.mgr.RegistryEntries()
+		if err != nil {
+			return "", err
+		}
+		return toJSON(entries), nil
+
+	case "set_registry_metadata":
+		entry, err := s.mgr.SetRegistryMetadata(str(args, "name"), str(args, "project"), strSlice(args, "tags"))
+		if err != nil {
+			return "", err
+		}
+		return toJSON(entry), nil
 	}
 	return "", fmt.Errorf("unknown tool: %s", name)
 }
